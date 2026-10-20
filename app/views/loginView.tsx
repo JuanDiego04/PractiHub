@@ -100,8 +100,8 @@ export default function LoginView() {
                   className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white focus:border-emerald-500 focus:outline-none"
                 >
                   <option value="estudiante">Estudiante</option>
-                  <option value="tutor">Tutor / Practicante</option>
-                  <option value="empresa">Empresa / Reclutador</option>
+                  <option value="tutor">Instructor</option>
+                  <option value="empresa">Empresa</option>
                 </select>
               </div>
             </>

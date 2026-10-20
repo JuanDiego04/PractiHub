@@ -26,9 +26,27 @@ interface EvaluationDraft {
   resultado: ResultadoEvaluacion
 }
 
+interface PracticeDraft {
+  empresa: string
+  cargo: string
+  fecha_inicio: string
+  fecha_fin: string
+}
+
+interface StudentEvidence {
+  id: string
+  titulo: string
+  descripcion: string
+  archivo_path: string
+  created_at: string
+}
+
 export default function TutorEstudianteDetalleView({ assignmentId }: { assignmentId: string }) {
   const [student, setStudent] = useState<EstudianteAsignado | null>(null)
   const [evaluations, setEvaluations] = useState<Evaluacion[]>([])
+  const [studentEvidence, setStudentEvidence] = useState<StudentEvidence[]>([])
+  const [studentEvidenceUrls, setStudentEvidenceUrls] = useState<Record<string, string>>({})
+  const [studentEvidenceError, setStudentEvidenceError] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [exportError, setExportError] = useState('')
@@ -40,6 +58,9 @@ export default function TutorEstudianteDetalleView({ assignmentId }: { assignmen
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [signedUrls, setSignedUrls] = useState<Record<string, string | null>>({})
   const [savingEvaluation, setSavingEvaluation] = useState(false)
+  const [editingPractice, setEditingPractice] = useState(false)
+  const [practiceDraft, setPracticeDraft] = useState<PracticeDraft | null>(null)
+  const [savingPractice, setSavingPractice] = useState(false)
   const actionTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const showActionMessage = useCallback((message: string) => {
@@ -200,6 +221,57 @@ export default function TutorEstudianteDetalleView({ assignmentId }: { assignmen
     setOpenMenuId(null)
   }
 
+  function startEditingPractice() {
+    if (!student) return
+    setPracticeDraft({
+      empresa: student.empresa,
+      cargo: student.cargo,
+      fecha_inicio: student.fecha_inicio || '',
+      fecha_fin: student.fecha_fin || '',
+    })
+    setEditingPractice(true)
+  }
+
+  async function savePractice() {
+    if (!student || !practiceDraft) return
+    if (!practiceDraft.empresa.trim() || !practiceDraft.cargo.trim()) {
+      showActionMessage('La empresa y el cargo son obligatorios.')
+      return
+    }
+    if (practiceDraft.fecha_inicio && practiceDraft.fecha_fin < practiceDraft.fecha_inicio) {
+      showActionMessage('La fecha de finalización no puede ser anterior a la fecha de inicio.')
+      return
+    }
+
+    setSavingPractice(true)
+    try {
+      const updatedPractice = {
+        empresa: practiceDraft.empresa.trim(),
+        cargo: practiceDraft.cargo.trim(),
+        fecha_inicio: practiceDraft.fecha_inicio || null,
+        fecha_fin: practiceDraft.fecha_fin || null,
+      }
+      const { data, error: updateError } = await supabase
+        .from('tutor_estudiantes')
+        .update(updatedPractice)
+        .eq('id', assignmentId)
+        .eq('tutor_id', student.tutor_id)
+        .select('id')
+
+      if (updateError) throw new Error(`No se pudieron actualizar los datos de la práctica: ${updateError.message}`)
+      if (!data?.length) throw new Error('No se actualizó ningún registro. Verifica que esta práctica siga asignada a tu perfil.')
+
+      setStudent({ ...student, ...updatedPractice })
+      setEditingPractice(false)
+      setPracticeDraft(null)
+      showActionMessage('Datos de la práctica actualizados correctamente.')
+    } catch (updateError) {
+      showActionMessage(updateError instanceof Error ? updateError.message : 'No se pudieron actualizar los datos de la práctica.')
+    } finally {
+      setSavingPractice(false)
+    }
+  }
+
   async function saveEditedEvaluation(evaluation: Evaluacion) {
     if (!editingDraft || !student) return
     const score = Number(editingDraft.calificacion)
@@ -276,15 +348,16 @@ export default function TutorEstudianteDetalleView({ assignmentId }: { assignmen
     const target = deleteTarget
     setDeleteTarget(null)
     try {
-      const { data: deletedRows, error: deleteError } = await supabase
-        .from('tutor_evaluaciones')
-        .delete()
-        .eq('id', target.id)
-        .eq('estudiante_asignado_id', assignmentId)
-        .select('id')
-
-      if (deleteError) throw new Error(`No se pudo eliminar la evaluación: ${deleteError.message}`)
-      if (!deletedRows?.length) throw new Error('No se eliminó ningún registro. Actualiza la página e inténtalo nuevamente.')
+      const { data: evidencePath, error: deleteError } = await supabase.rpc('tutor_delete_evaluation', {
+        p_evaluation_id: target.id,
+        p_assignment_id: assignmentId,
+      })
+      if (deleteError) {
+        if (deleteError.code === 'PGRST202' || deleteError.code === '42883') {
+          throw new Error(`Falta habilitar la eliminación segura del historial. Ejecuta supabase/student_followup.sql después de tutor_module.sql y vuelve a intentarlo. Detalle: ${deleteError.message}`)
+        }
+        throw new Error(`No se pudo eliminar la evaluación: ${deleteError.message}`)
+      }
 
       setEvaluations((current) => current.filter((evaluation) => evaluation.id !== target.id))
       setSignedUrls((current) => {
@@ -292,9 +365,10 @@ export default function TutorEstudianteDetalleView({ assignmentId }: { assignmen
         delete next[target.id]
         return next
       })
-      if (target.evidencia_path) {
+      const deletedEvidencePath = typeof evidencePath === 'string' ? evidencePath : target.evidencia_path
+      if (deletedEvidencePath) {
         try {
-        await removeEvidence(target.evidencia_path)
+          await removeEvidence(deletedEvidencePath)
         } catch (removeError) {
           showActionMessage(removeError instanceof Error
             ? `La evaluación se eliminó, pero no se pudo retirar el archivo: ${removeError.message}`
@@ -326,10 +400,30 @@ export default function TutorEstudianteDetalleView({ assignmentId }: { assignmen
         const assignment = assignedStudents.find((entry) => entry.id === assignmentId)
         if (!assignment) throw new Error('No encontramos este seguimiento en tu lista de estudiantes.')
 
-        const history = await getEvaluations([assignment.id])
+        const [history, evidenceResult] = await Promise.all([
+          getEvaluations([assignment.id]),
+          supabase
+            .from('evidencias_estudiantes')
+            .select('id, titulo, descripcion, archivo_path, created_at')
+            .eq('tutor_id', tutorId)
+            .eq('estudiante_id', assignment.estudiante_id)
+            .eq('tipo', 'academica')
+            .order('created_at', { ascending: false }),
+        ])
+        let evidenceError = ''
+        if (evidenceResult.error) {
+          const missingEvidenceTable = ['42P01', 'PGRST205'].includes(evidenceResult.error.code)
+          if (missingEvidenceTable) {
+            evidenceError = `Supabase aún no encuentra la tabla public.evidencias_estudiantes. Ejecuta completo supabase/student_followup.sql después de tutor_module.sql en el mismo proyecto de Supabase de la aplicación. Confirma que el resultado final muestre tabla_bitacoras = evidencias_estudiantes y luego recarga la página. Detalle: ${evidenceResult.error.message}`
+          } else {
+            throw new Error(`No se pudieron cargar las bitácoras del estudiante: ${evidenceResult.error.message}`)
+          }
+        }
         if (!cancelled) {
           setStudent(assignment)
           setEvaluations(history)
+          setStudentEvidence((evidenceResult.data || []) as StudentEvidence[])
+          setStudentEvidenceError(evidenceError)
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -345,6 +439,30 @@ export default function TutorEstudianteDetalleView({ assignmentId }: { assignmen
       cancelled = true
     }
   }, [assignmentId])
+
+  useEffect(() => {
+    let cancelled = false
+    const pending = studentEvidence.filter((evidence) => !(evidence.id in studentEvidenceUrls))
+    if (pending.length === 0) return
+
+    void Promise.all(pending.map(async (evidence) => {
+      const { data, error: urlError } = await supabase.storage
+        .from('evidencias_estudiantes')
+        .createSignedUrl(evidence.archivo_path, 60 * 60)
+      if (urlError) throw new Error(`No se pudo abrir la bitácora «${evidence.titulo}»: ${urlError.message}`)
+      return [evidence.id, data.signedUrl] as const
+    })).then((results) => {
+      if (!cancelled) setStudentEvidenceUrls((current) => ({ ...current, ...Object.fromEntries(results) }))
+    }).catch((urlError: unknown) => {
+      if (!cancelled) {
+        showActionMessage(urlError instanceof Error ? urlError.message : 'No se pudieron abrir las bitácoras del estudiante.')
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [studentEvidence, studentEvidenceUrls, showActionMessage])
 
   useEffect(() => {
     let cancelled = false
@@ -468,26 +586,130 @@ export default function TutorEstudianteDetalleView({ assignmentId }: { assignmen
         </header>
 
         <section className="rounded-2xl border border-slate-700 bg-slate-800 p-5 sm:p-6">
-          <h2 className="text-lg font-semibold text-white">Datos de la práctica</h2>
-          <dl className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Empresa</dt>
-              <dd className="mt-1 text-slate-200">{student.empresa}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Oferta / cargo</dt>
-              <dd className="mt-1 text-slate-200">{student.cargo}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Fecha de inicio</dt>
-              <dd className="mt-1 text-slate-200">{readableDate(student.fecha_inicio)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Fecha de finalización</dt>
-              <dd className="mt-1 text-slate-200">{readableDate(student.fecha_fin)}</dd>
-            </div>
-          </dl>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-white">Datos de la práctica</h2>
+            {!editingPractice && (
+              <button
+                type="button"
+                onClick={startEditingPractice}
+                className="rounded-lg border border-slate-600 px-3 py-2 text-sm font-medium text-slate-300 transition hover:border-emerald-400/60 hover:text-emerald-300"
+              >
+                Editar datos
+              </button>
+            )}
+          </div>
+          {editingPractice && practiceDraft ? (
+            <form
+              onSubmit={(event) => { event.preventDefault(); void savePractice() }}
+              className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2"
+            >
+              <label className="text-sm font-medium text-slate-300">
+                Empresa
+                <input
+                  required
+                  value={practiceDraft.empresa}
+                  onChange={(event) => setPracticeDraft((current) => current ? { ...current, empresa: event.target.value } : current)}
+                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none focus:border-emerald-400"
+                />
+              </label>
+              <label className="text-sm font-medium text-slate-300">
+                Oferta / cargo
+                <input
+                  required
+                  value={practiceDraft.cargo}
+                  onChange={(event) => setPracticeDraft((current) => current ? { ...current, cargo: event.target.value } : current)}
+                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none focus:border-emerald-400"
+                />
+              </label>
+              <label className="text-sm font-medium text-slate-300">
+                Fecha de inicio
+                <input
+                  type="date"
+                  value={practiceDraft.fecha_inicio}
+                  max={practiceDraft.fecha_fin || undefined}
+                  onChange={(event) => setPracticeDraft((current) => current ? { ...current, fecha_inicio: event.target.value } : current)}
+                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none focus:border-emerald-400"
+                />
+              </label>
+              <label className="text-sm font-medium text-slate-300">
+                Fecha de finalización
+                <input
+                  type="date"
+                  min={practiceDraft.fecha_inicio || undefined}
+                  value={practiceDraft.fecha_fin}
+                  onChange={(event) => setPracticeDraft((current) => current ? { ...current, fecha_fin: event.target.value } : current)}
+                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none focus:border-emerald-400"
+                />
+              </label>
+              <div className="flex flex-wrap gap-2 sm:col-span-2">
+                <button
+                  type="submit"
+                  disabled={savingPractice}
+                  className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {savingPractice ? 'Guardando...' : 'Guardar cambios'}
+                </button>
+                <button
+                  type="button"
+                  disabled={savingPractice}
+                  onClick={() => { setEditingPractice(false); setPracticeDraft(null) }}
+                  className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700 disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          ) : (
+            <dl className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Empresa</dt>
+                <dd className="mt-1 text-slate-200">{student.empresa}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Oferta / cargo</dt>
+                <dd className="mt-1 text-slate-200">{student.cargo}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Fecha de inicio</dt>
+                <dd className="mt-1 text-slate-200">{readableDate(student.fecha_inicio)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Fecha de finalización</dt>
+                <dd className="mt-1 text-slate-200">{readableDate(student.fecha_fin)}</dd>
+              </div>
+            </dl>
+          )}
         </section>
+
+        {(studentEvidence.length > 0 || studentEvidenceError) && (
+          <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-800 p-5 sm:p-6">
+            <h2 className="text-lg font-semibold text-white">Bitácoras del estudiante</h2>
+            <p className="mt-1 text-sm text-slate-400">Archivos y avances compartidos por {student.nombre}.</p>
+            {studentEvidenceError && <p role="alert" className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm leading-6 text-amber-200">{studentEvidenceError}</p>}
+            {studentEvidence.length > 0 ? (
+              <ul className="mt-4 space-y-3">
+                {studentEvidence.map((evidence) => (
+                  <li key={evidence.id} className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-semibold text-white">{evidence.titulo}</h3>
+                        <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-400">{evidence.descripcion}</p>
+                      </div>
+                      <span className="shrink-0 text-xs text-slate-500">{readableDate(evidence.created_at.slice(0, 10))}</span>
+                    </div>
+                    {studentEvidenceUrls[evidence.id] && (
+                      <a href={studentEvidenceUrls[evidence.id]} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-sm font-semibold text-emerald-300 hover:text-emerald-200">
+                        Abrir bitácora →
+                      </a>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : !studentEvidenceError ? (
+              <p className="mt-4 text-sm text-slate-500">El estudiante aún no ha enviado bitácoras.</p>
+            ) : null}
+          </section>
+        )}
 
         <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-800 p-5 sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

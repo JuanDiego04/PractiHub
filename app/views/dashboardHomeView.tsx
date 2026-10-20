@@ -21,11 +21,11 @@ interface Metric {
 
 const dashboardByRole: Record<string, { subtitle: string; metrics: Metric[] }> = {
   estudiante: {
-    subtitle: 'Resumen de tus prácticas profesionales',
+    subtitle: 'Seguimiento académico con tu instructor',
     metrics: [
-      { label: 'Postulaciones activas', value: '—', detail: 'Se mostrará cuando se conecten tus postulaciones', accent: 'emerald' },
-      { label: 'Entrevistas programadas', value: '—', detail: 'Se mostrará cuando se conecten tus entrevistas', accent: 'blue' },
-      { label: 'Estado de práctica', value: '—', detail: 'Se actualizará desde tus seguimientos', accent: 'violet' },
+      { label: 'Prácticas en curso', value: '—', detail: 'Cargando tus asignaciones', accent: 'emerald' },
+      { label: 'Bitácoras enviadas', value: '—', detail: 'Cargando tus entregas', accent: 'blue' },
+      { label: 'Evaluaciones recibidas', value: '—', detail: 'Cargando tu historial', accent: 'violet' },
     ],
   },
   empresa: {
@@ -137,13 +137,20 @@ export default function DashboardHomeView() {
   const [error, setError] = useState('')
   const [tutorMetricError, setTutorMetricError] = useState('')
   const [tutorMetricValues, setTutorMetricValues] = useState<{ students: number; evaluations: number } | null>(null)
-  const [signingOut, setSigningOut] = useState(false)
+  const [studentMetricValues, setStudentMetricValues] = useState<{ activePractices: number; evidence: number; evaluations: number } | null>(null)
+  const [studentPracticeAvailable, setStudentPracticeAvailable] = useState(false)
+  const [studentPracticeError, setStudentPracticeError] = useState('')
 
   useEffect(() => {
     let cancelled = false
 
     async function loadProfile() {
       const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+      if (authError?.name === 'AuthSessionMissingError' || (!authError && !user)) {
+        router.replace('/login')
+        return
+      }
 
       if (authError) {
         if (!cancelled) {
@@ -172,7 +179,41 @@ export default function DashboardHomeView() {
         setError('Tu cuenta no tiene un perfil asociado. Contacta al administrador para recibir ayuda.')
       } else {
         setPerfil(data)
-        if (data.rol === 'tutor') {
+        if (data.rol === 'estudiante') {
+          try {
+            const { data: assignments, error: assignmentError } = await supabase
+              .from('tutor_estudiantes')
+              .select('id, estado')
+              .eq('estudiante_id', user.id)
+            if (assignmentError) throw new Error(`No se pudieron cargar tus seguimientos: ${assignmentError.message}`)
+
+            const assignmentRows = assignments || []
+            const assignmentIds = assignmentRows.map((assignment) => assignment.id)
+            const [evidenceResult, evaluationsResult] = assignmentIds.length
+              ? await Promise.all([
+                supabase.from('evidencias_estudiantes').select('id', { count: 'exact', head: true }).eq('tipo', 'academica').in('tutor_estudiante_id', assignmentIds),
+                supabase.from('tutor_evaluaciones').select('id', { count: 'exact', head: true }).in('estudiante_asignado_id', assignmentIds),
+              ])
+              : [{ count: 0, error: null }, { count: 0, error: null }]
+
+            if (evidenceResult.error) throw new Error(`No se pudieron cargar tus bitácoras: ${evidenceResult.error.message}`)
+            if (evaluationsResult.error) throw new Error(`No se pudieron cargar tus evaluaciones: ${evaluationsResult.error.message}`)
+            if (!cancelled) {
+              setStudentPracticeAvailable(assignmentRows.length > 0)
+              setStudentMetricValues({
+                activePractices: assignmentRows.filter((assignment) => assignment.estado === 'en_curso').length,
+                evidence: evidenceResult.count || 0,
+                evaluations: evaluationsResult.count || 0,
+              })
+              setStudentPracticeError('')
+            }
+          } catch (metricError) {
+            if (!cancelled) {
+              const detail = metricError instanceof Error ? metricError.message : 'No se pudo cargar el seguimiento académico.'
+              setStudentPracticeError(`${detail}. Ejecuta supabase/student_followup.sql después de tutor_module.sql en Supabase.`)
+            }
+          }
+        } else if (data.rol === 'tutor') {
           try {
             const assignedStudents = await getAssignedStudents(user.id)
             const evaluations = await getEvaluations(assignedStudents.map((student) => student.id))
@@ -198,19 +239,6 @@ export default function DashboardHomeView() {
     }
   }, [router])
 
-  async function handleSignOut() {
-    setSigningOut(true)
-    const { error: signOutError } = await supabase.auth.signOut()
-
-    if (signOutError) {
-      setError(`No se pudo cerrar la sesión: ${signOutError.message}`)
-      setSigningOut(false)
-      return
-    }
-
-    router.replace('/login')
-  }
-
   if (loading) {
     return (
       <>
@@ -230,14 +258,9 @@ export default function DashboardHomeView() {
           <section role="alert" className="w-full max-w-lg rounded-2xl border border-rose-400/20 bg-slate-800 p-6 text-center">
             <h1 className="text-xl font-bold text-white">No pudimos abrir tu panel</h1>
             <p className="mt-3 text-sm leading-6 text-slate-400">{error || 'No se encontró la información de tu perfil.'}</p>
-            <button
-              type="button"
-              onClick={handleSignOut}
-              disabled={signingOut}
-              className="mt-6 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-700 disabled:opacity-60"
-            >
-              {signingOut ? 'Cerrando sesión...' : 'Cerrar sesión'}
-            </button>
+            <Link href="/perfil" className="mt-6 inline-flex rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-700">
+              Ir a mi perfil
+            </Link>
           </section>
         </main>
       </>
@@ -256,14 +279,9 @@ export default function DashboardHomeView() {
             <p className="mt-3 text-sm leading-6 text-slate-400">
               El rol asociado a tu cuenta no tiene un panel configurado.
             </p>
-            <button
-              type="button"
-              onClick={handleSignOut}
-              disabled={signingOut}
-              className="mt-6 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-700 disabled:opacity-60"
-            >
-              {signingOut ? 'Cerrando sesión...' : 'Cerrar sesión'}
-            </button>
+            <Link href="/perfil" className="mt-6 inline-flex rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-700">
+              Ir a mi perfil
+            </Link>
           </section>
         </main>
       </>
@@ -276,6 +294,16 @@ export default function DashboardHomeView() {
       value: String(index === 0 ? tutorMetricValues.students : tutorMetricValues.evaluations),
       detail: index === 0 ? 'Prácticas asignadas por ti' : 'Evaluaciones guardadas por ti',
     }))
+    : perfil.rol === 'estudiante' && studentMetricValues
+      ? dashboard.metrics.map((metric, index) => ({
+        ...metric,
+        value: String(index === 0 ? studentMetricValues.activePractices : index === 1 ? studentMetricValues.evidence : studentMetricValues.evaluations),
+        detail: index === 0
+          ? 'Asignadas por tu instructor'
+          : index === 1
+            ? 'Enviadas por ti al seguimiento'
+            : 'Registradas por tu instructor',
+      }))
     : dashboard.metrics
 
   return (
@@ -291,14 +319,12 @@ export default function DashboardHomeView() {
             </h1>
             <p className="mt-2 text-sm text-slate-400 sm:text-base">{dashboard.subtitle}</p>
           </div>
-          <button
-            type="button"
-            onClick={handleSignOut}
-            disabled={signingOut}
-            className="self-start rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:border-slate-500 hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60 sm:self-auto"
+          <Link
+            href="/perfil"
+            className="self-start rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:border-emerald-400/60 hover:bg-slate-800 hover:text-emerald-300 sm:self-auto"
           >
-            {signingOut ? 'Cerrando sesión...' : 'Cerrar sesión'}
-          </button>
+            Mi perfil
+          </Link>
         </header>
 
         <section aria-label="Resumen de métricas">
@@ -316,6 +342,9 @@ export default function DashboardHomeView() {
           {tutorMetricError && perfil.rol === 'tutor' && (
             <p role="alert" className="mt-4 text-sm text-rose-300">{tutorMetricError}</p>
           )}
+          {studentPracticeError && perfil.rol === 'estudiante' && (
+            <p role="alert" className="mt-4 text-sm text-rose-300">{studentPracticeError}</p>
+          )}
         </section>
 
         <section className="mt-8 rounded-2xl border border-slate-700 bg-slate-800 p-5 sm:mt-10 sm:p-6">
@@ -325,17 +354,28 @@ export default function DashboardHomeView() {
           </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {perfil.rol === 'estudiante' && (
-              <QuickAction
-                label="Explorar ofertas"
-                detail="Encuentra tu próxima oportunidad"
-                href="/buscar-practicas"
-                primary
-              />
+              studentPracticeAvailable ? (
+                <QuickAction
+                  label="Abrir mi seguimiento"
+                  detail="Envía bitácoras y consulta las evaluaciones de tu instructor"
+                  href="/mi-practica"
+                  primary
+                />
+              ) : (
+                <p className="rounded-xl border border-slate-700 bg-slate-900/70 px-5 py-4 text-sm leading-6 text-slate-400">
+                  El seguimiento aparecerá aquí cuando tu instructor registre tu práctica.
+                </p>
+              )
             )}
             {perfil.rol === 'empresa' && (
               <>
-                <QuickAction label="Publicar nueva oferta" detail="Atrae talento a tu equipo" primary />
-                <QuickAction label="Ver candidatos" detail="Revisa nuevas postulaciones" />
+                <QuickAction
+                  label="Revisar postulaciones"
+                  detail="Consulta candidatos y entregables laborales"
+                  href="/empresa/seguimiento"
+                  primary
+                />
+                <QuickAction label="Publicar nueva oferta" detail="Atrae talento a tu equipo" />
               </>
             )}
             {perfil.rol === 'tutor' && (

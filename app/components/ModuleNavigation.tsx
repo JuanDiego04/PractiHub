@@ -11,14 +11,18 @@ interface ModuleLink {
 }
 
 const linksByRole: Record<string, ModuleLink[]> = {
-  estudiante: [{ label: 'Explorar prácticas', href: '/buscar-practicas' }],
+  estudiante: [
+    { label: 'Mi práctica', href: '/mi-practica' },
+    { label: 'Mi perfil', href: '/perfil' },
+  ],
   tutor: [
     { label: 'Estudiantes asignados', href: '/estudiantes' },
     { label: 'Evaluaciones', href: '/evaluaciones' },
+    { label: 'Mi perfil', href: '/perfil' },
   ],
   empresa: [
-    { label: 'Gestión de vacantes' },
-    { label: 'Candidatos' },
+    { label: 'Postulaciones y practicantes', href: '/empresa/seguimiento' },
+    { label: 'Mi perfil', href: '/perfil' },
   ],
 }
 
@@ -33,6 +37,8 @@ function BackArrow() {
 export default function ModuleNavigation() {
   const pathname = usePathname()
   const [role, setRole] = useState<string | null>(null)
+  const [hasStudentPractice, setHasStudentPractice] = useState(false)
+  const [studentPracticeError, setStudentPracticeError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -47,7 +53,22 @@ export default function ModuleNavigation() {
         .eq('id', user.id)
         .maybeSingle()
 
-      if (!cancelled && !profileError && data) setRole(data.rol)
+      if (cancelled) return
+      if (profileError || !data) return
+      setRole(data.rol)
+      if (data.rol === 'estudiante') {
+        const { data: assignments, error: assignmentsError } = await supabase
+          .from('tutor_estudiantes')
+          .select('id')
+          .eq('estudiante_id', user.id)
+          .limit(1)
+        if (cancelled) return
+        if (assignmentsError) {
+          setStudentPracticeError('No se pudo comprobar si el instructor habilitó tu práctica. Ejecuta supabase/student_module.sql en Supabase.')
+        } else {
+          setHasStudentPractice(Boolean(assignments?.length))
+        }
+      }
     }
 
     void loadRole()
@@ -56,7 +77,9 @@ export default function ModuleNavigation() {
     }
   }, [])
 
-  const links = role ? linksByRole[role] || [] : []
+  const links = role
+    ? (linksByRole[role] || []).filter((item) => item.href !== '/mi-practica' || hasStudentPractice)
+    : []
 
   return (
     <nav aria-label="Navegación del módulo" className="border-b border-slate-800 bg-slate-950/70">
@@ -110,6 +133,9 @@ export default function ModuleNavigation() {
           ))}
         </div>
       </div>
+      {studentPracticeError && role === 'estudiante' && (
+        <p role="alert" className="mx-auto max-w-7xl px-4 pb-3 text-xs text-amber-300 sm:px-6 lg:px-10">{studentPracticeError}</p>
+      )}
     </nav>
   )
 }

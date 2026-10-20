@@ -12,6 +12,11 @@ import {
 } from '@/lib/tutorSeguimiento'
 import { supabase } from '@/lib/supabase'
 
+interface CompanyProfile {
+  id: string
+  nombre: string
+}
+
 function StudentListSkeleton() {
   return (
     <div className="space-y-3" aria-label="Cargando estudiantes">
@@ -28,6 +33,7 @@ function StudentListSkeleton() {
 
 export default function TutorEstudiantesView() {
   const [students, setStudents] = useState<EstudianteAsignado[]>([])
+  const [companies, setCompanies] = useState<CompanyProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -36,15 +42,22 @@ export default function TutorEstudiantesView() {
   const [formMessage, setFormMessage] = useState('')
   const [email, setEmail] = useState('')
   const [empresa, setEmpresa] = useState('')
+  const [empresaId, setEmpresaId] = useState('')
   const [cargo, setCargo] = useState('')
   const [fechaInicio, setFechaInicio] = useState('')
   const [fechaFin, setFechaFin] = useState('')
+  const [jefeInmediato, setJefeInmediato] = useState('')
 
   const loadStudents = useCallback(async () => {
     try {
       const tutorId = await getTutorId()
-      const assignedStudents = await getAssignedStudents(tutorId)
+      const [assignedStudents, companyResult] = await Promise.all([
+        getAssignedStudents(tutorId),
+        supabase.from('perfiles').select('id, nombre').eq('rol', 'empresa').order('nombre'),
+      ])
+      if (companyResult.error) throw new Error(`No se pudieron cargar las empresas registradas: ${companyResult.error.message}`)
       setStudents(assignedStudents)
+      setCompanies((companyResult.data || []) as CompanyProfile[])
       setError('')
       setLoadFailed(false)
     } catch (loadError) {
@@ -74,6 +87,8 @@ export default function TutorEstudiantesView() {
         p_cargo: cargo.trim(),
         p_fecha_inicio: fechaInicio || null,
         p_fecha_fin: fechaFin || null,
+        p_empresa_id: empresaId || null,
+        p_jefe_inmediato: jefeInmediato.trim() || null,
       })
 
       if (insertError) throw new Error(`No se pudo asignar al estudiante: ${insertError.message}`)
@@ -84,9 +99,11 @@ export default function TutorEstudiantesView() {
       setFormMessage(`${assigned[0].nombre} fue agregado a tu lista de seguimiento.`)
       setEmail('')
       setEmpresa('')
+      setEmpresaId('')
       setCargo('')
       setFechaInicio('')
       setFechaFin('')
+      setJefeInmediato('')
       await loadStudents()
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Ocurrió un error inesperado.')
@@ -159,12 +176,29 @@ export default function TutorEstudiantesView() {
               />
             </label>
             <label className="text-sm font-medium text-slate-300">
+              Empresa registrada (opcional)
+              <select
+                value={empresaId}
+                onChange={(event) => {
+                  const selectedCompanyId = event.target.value
+                  const selectedCompany = companies.find((company) => company.id === selectedCompanyId)
+                  setEmpresaId(selectedCompanyId)
+                  setEmpresa(selectedCompany?.nombre || '')
+                }}
+                className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none focus:border-emerald-400"
+              >
+                <option value="">Escribir nombre de empresa</option>
+                {companies.map((company) => <option key={company.id} value={company.id}>{company.nombre}</option>)}
+              </select>
+            </label>
+            <label className="text-sm font-medium text-slate-300">
               Empresa de práctica
               <input
                 required
                 value={empresa}
                 onChange={(event) => setEmpresa(event.target.value)}
                 placeholder="Nombre de la empresa"
+                readOnly={Boolean(empresaId)}
                 className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none placeholder:text-slate-600 focus:border-emerald-400"
               />
             </label>
@@ -175,6 +209,15 @@ export default function TutorEstudiantesView() {
                 value={cargo}
                 onChange={(event) => setCargo(event.target.value)}
                 placeholder="Ej. Auxiliar de desarrollo"
+                className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none placeholder:text-slate-600 focus:border-emerald-400"
+              />
+            </label>
+            <label className="text-sm font-medium text-slate-300">
+              Jefe inmediato (opcional)
+              <input
+                value={jefeInmediato}
+                onChange={(event) => setJefeInmediato(event.target.value)}
+                placeholder="Nombre del supervisor en la empresa"
                 className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none placeholder:text-slate-600 focus:border-emerald-400"
               />
             </label>
