@@ -16,6 +16,7 @@ function normalizePhone(value: string) {
 interface UserProfile {
   id: string
   nombre: string
+  nombre_empresa: string | null
   email: string
   rol: string
   telefono: string | null
@@ -29,6 +30,9 @@ const roleLabels: Record<string, string> = {
 }
 
 function profileSchemaMessage(message: string, code?: string) {
+  if (/nombre_empresa|update_own_company_name/i.test(message)) {
+    return `No está disponible el registro del nombre empresarial. Ejecuta completo supabase/company_registry.sql después de las migraciones del módulo de empresa en el SQL Editor y vuelve a cargar la página. Detalle: ${message}`
+  }
   if (code === '42703' || /column .* does not exist/i.test(message)) {
     return `A la tabla public.perfiles le faltan columnas del perfil. Ejecuta completo supabase/user_profile.sql en el SQL Editor del mismo proyecto de Supabase que usa esta aplicación y vuelve a cargar la página. Detalle: ${message}`
   }
@@ -58,10 +62,12 @@ export default function UserProfileView() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [savingProfile, setSavingProfile] = useState(false)
+  const [savingCompanyName, setSavingCompanyName] = useState(false)
   const [savingEmail, setSavingEmail] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
   const [nombre, setNombre] = useState('')
+  const [nombreEmpresa, setNombreEmpresa] = useState('')
   const [telefono, setTelefono] = useState('')
   const [photo, setPhoto] = useState<File | null>(null)
   const [removePhoto, setRemovePhoto] = useState(false)
@@ -86,7 +92,7 @@ export default function UserProfileView() {
 
       const { data, error: profileError } = await supabase
         .from('perfiles')
-        .select('id, nombre, email, rol, telefono, foto_perfil_path')
+        .select('id, nombre, nombre_empresa, email, rol, telefono, foto_perfil_path')
         .eq('id', user.id)
         .maybeSingle()
       if (profileError) throw new Error(profileSchemaMessage(`No se pudo cargar tu perfil: ${profileError.message}`, profileError.code))
@@ -95,6 +101,7 @@ export default function UserProfileView() {
       const userProfile = data as UserProfile
       setProfile(userProfile)
       setNombre(userProfile.nombre)
+      setNombreEmpresa(userProfile.nombre_empresa || '')
       setTelefono(normalizePhone(userProfile.telefono || ''))
       if (userProfile.foto_perfil_path) {
         const { data: signedPhoto, error: photoError } = await supabase.storage
@@ -207,6 +214,31 @@ export default function UserProfileView() {
     }
   }
 
+  async function saveCompanyName(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const normalizedName = nombreEmpresa.trim()
+    if (normalizedName.length < 2 || normalizedName.length > 150) {
+      setError('El nombre de la empresa debe tener entre 2 y 150 caracteres.')
+      return
+    }
+
+    setSavingCompanyName(true)
+    setError('')
+    setMessage('')
+    try {
+      const { error: saveError } = await supabase.rpc('update_own_company_name', {
+        p_nombre_empresa: normalizedName,
+      })
+      if (saveError) throw new Error(profileSchemaMessage(`No se pudo guardar el nombre de la empresa: ${saveError.message}`, saveError.code))
+      setProfile((current) => current ? { ...current, nombre_empresa: normalizedName } : current)
+      setMessage('El nombre de la empresa se actualizó correctamente y se mostrará en las ofertas y seguimientos.')
+    } catch (saveFailure) {
+      setError(saveFailure instanceof Error ? saveFailure.message : 'No se pudo guardar el nombre de la empresa.')
+    } finally {
+      setSavingCompanyName(false)
+    }
+  }
+
   async function changeEmail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const normalizedEmail = newEmail.trim().toLowerCase()
@@ -253,13 +285,15 @@ export default function UserProfileView() {
   async function handleSignOut() {
     setSigningOut(true)
     setError('')
-    const { error: signOutError } = await supabase.auth.signOut()
-    if (signOutError) {
-      setError(`No se pudo cerrar la sesión: ${signOutError.message}`)
+    try {
+      const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' })
+      if (signOutError) throw signOutError
+      window.location.replace('/login')
+    } catch (signOutFailure) {
+      const detail = signOutFailure instanceof Error ? signOutFailure.message : 'Error inesperado.'
+      setError(`No se pudo cerrar la sesión: ${detail}`)
       setSigningOut(false)
-      return
     }
-    router.replace('/login')
   }
 
   const initials = (profile?.nombre || accountEmail || 'P').trim().slice(0, 1).toUpperCase()
@@ -340,6 +374,36 @@ export default function UserProfileView() {
             </div>
           </form>
         </section>
+
+        {profile?.rol === 'empresa' && (
+          <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-800 p-5 sm:p-6">
+            <h2 className="font-semibold text-white">Datos de la empresa</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-400">
+              Este nombre se mostrará en las ofertas para aprendices y en el selector de empresas del instructor. Tu nombre personal no se modifica.
+            </p>
+            <form onSubmit={(event) => void saveCompanyName(event)} className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+              <label className="flex-1 text-sm font-medium text-slate-300">
+                Nombre de la empresa que gestionas
+                <input
+                  required
+                  minLength={2}
+                  maxLength={150}
+                  value={nombreEmpresa}
+                  onChange={(event) => setNombreEmpresa(event.target.value)}
+                  placeholder="Ej. Soluciones Tecnológicas S.A.S."
+                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none placeholder:text-slate-600 focus:border-emerald-400"
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={savingCompanyName}
+                className="rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-wait disabled:opacity-60"
+              >
+                {savingCompanyName ? 'Guardando...' : 'Guardar empresa'}
+              </button>
+            </form>
+          </section>
+        )}
 
         <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
           <section className="rounded-2xl border border-slate-700 bg-slate-800 p-5 sm:p-6">

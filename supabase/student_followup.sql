@@ -1,5 +1,4 @@
 -- Seguimiento académico instructor-estudiante, independiente del módulo de ofertas.
--- Ejecutar después de tutor_module.sql en el SQL Editor del proyecto Supabase.
 
 alter table public.tutor_estudiantes
   add column if not exists empresa_id uuid references public.perfiles(id) on delete set null,

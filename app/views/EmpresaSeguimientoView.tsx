@@ -6,16 +6,17 @@ import { readableDate } from '@/lib/tutorSeguimiento'
 
 type ApplicationState = 'pendiente' | 'aprobada' | 'contratada' | 'rechazada'
 
-interface CompanyApplication {
+export interface PostulacionConPerfil {
   id: string
   oferta_id: string
   estudiante_id: string
   empresa_id: string
   estado: ApplicationState
   created_at: string
+  descripcion_perfil: string | null
+  cv_path: string | null
   oferta: { titulo: string } | null
   estudiante: { nombre: string; email: string } | null
-  evidences: CompanyEvidence[]
 }
 
 interface CompanyEvidence {
@@ -27,9 +28,11 @@ interface CompanyEvidence {
   created_at: string
 }
 
+type CompanyApplication = PostulacionConPerfil & { evidences: CompanyEvidence[] }
+
 const stateLabels: Record<ApplicationState, string> = {
   pendiente: 'Pendiente',
-  aprobada: 'Aprobada',
+  aprobada: 'Aceptada · pendiente de instructor',
   contratada: 'Contratada',
   rechazada: 'No seleccionada',
 }
@@ -42,6 +45,7 @@ export default function EmpresaSeguimientoView() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [evidenceUrls, setEvidenceUrls] = useState<Record<string, string>>({})
+  const [cvUrls, setCvUrls] = useState<Record<string, string>>({})
 
   const loadApplications = useCallback(async () => {
     setLoading(true)
@@ -57,7 +61,7 @@ export default function EmpresaSeguimientoView() {
 
       const { data: rows, error: applicationsError } = await supabase
         .from('postulaciones')
-        .select('id, oferta_id, estudiante_id, empresa_id, estado, created_at, oferta:ofertas(titulo)')
+        .select('id, oferta_id, estudiante_id, empresa_id, estado, created_at, descripcion_perfil, cv_path, oferta:ofertas(titulo)')
         .eq('empresa_id', user.id)
         .order('created_at', { ascending: false })
       if (applicationsError) throw new Error(`No se pudieron cargar las postulaciones: ${applicationsError.message}`)
@@ -92,6 +96,28 @@ export default function EmpresaSeguimientoView() {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+    const pending = applications.filter(
+      (application): application is CompanyApplication & { cv_path: string } => Boolean(application.cv_path) && !(application.id in cvUrls),
+    )
+    if (pending.length === 0) return
+
+    void Promise.all(pending.map(async (application) => {
+      const { data, error: urlError } = await supabase.storage
+        .from('hojas_vida')
+        .createSignedUrl(application.cv_path, 60 * 60)
+      if (urlError) throw new Error(`No se pudo abrir la hoja de vida de ${application.estudiante?.nombre || 'un candidato'}: ${urlError.message}`)
+      return [application.id, data.signedUrl] as const
+    })).then((results) => {
+      if (!cancelled) setCvUrls((current) => ({ ...current, ...Object.fromEntries(results) }))
+    }).catch((urlError: unknown) => {
+      if (!cancelled) setError(urlError instanceof Error ? urlError.message : 'No se pudieron abrir las hojas de vida.')
+    })
+
+    return () => { cancelled = true }
+  }, [applications, cvUrls])
+
+  useEffect(() => {
     // Loading updates component state after the Supabase requests complete.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadApplications()
@@ -117,7 +143,7 @@ export default function EmpresaSeguimientoView() {
     return () => { cancelled = true }
   }, [applications, evidenceUrls])
 
-  async function updateApplicationStatus(application: CompanyApplication, status: ApplicationState) {
+  async function updateApplicationStatus(application: CompanyApplication, status: 'aprobada' | 'rechazada') {
     setUpdatingId(application.id)
     setMessage('')
     setError('')
@@ -132,7 +158,9 @@ export default function EmpresaSeguimientoView() {
       if (!data?.length) throw new Error('No se actualizó ningún registro. Recarga la página e inténtalo nuevamente.')
 
       setApplications((current) => current.map((item) => item.id === application.id ? { ...item, estado: status } : item))
-      setMessage(`Se actualizó el estado de la postulación de ${application.estudiante?.nombre || 'el estudiante'}.`)
+      setMessage(status === 'aprobada'
+        ? `Se aceptó a ${application.estudiante?.nombre || 'el estudiante'}. Un instructor deberá asignar la práctica para habilitar su seguimiento.`
+        : `Se rechazó la postulación de ${application.estudiante?.nombre || 'el estudiante'}.`)
     } catch (updateFailure) {
       setError(updateFailure instanceof Error ? updateFailure.message : 'No se pudo actualizar la postulación.')
     } finally {
@@ -145,8 +173,8 @@ export default function EmpresaSeguimientoView() {
       <div className="mx-auto max-w-6xl">
         <header className="mb-8">
           <p className="text-sm font-semibold text-emerald-400">PRACTIHUB · EMPRESA</p>
-          <h1 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">Postulaciones y practicantes</h1>
-          <p className="mt-2 max-w-2xl text-slate-400">Revisa las postulaciones a tus ofertas, define su estado y consulta los entregables laborales compartidos por cada practicante.</p>
+          <h1 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">Revisión de postulaciones</h1>
+          <p className="mt-2 max-w-2xl text-slate-400">Revisa los perfiles, acepta candidatos y consulta sus postulaciones. El seguimiento inicia cuando un instructor registra la práctica.</p>
         </header>
 
         {message && <p role="status" className="mb-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">{message}</p>}
@@ -175,19 +203,36 @@ export default function EmpresaSeguimientoView() {
                     <p className="mt-1 text-sm text-slate-400">{application.estudiante?.email || ''}</p>
                     <p className="mt-2 text-xs text-slate-500">Postulación recibida {readableDate(application.created_at.slice(0, 10))}</p>
                   </div>
-                  <label className="w-full text-sm font-medium text-slate-300 lg:max-w-xs">
-                    Estado
-                    <select
-                      value={application.estado}
-                      disabled={updatingId === application.id}
-                      onChange={(event) => void updateApplicationStatus(application, event.target.value as ApplicationState)}
-                      className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none focus:border-emerald-400 disabled:opacity-60"
-                    >
-                      {Object.entries(stateLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                    </select>
-                    {updatingId === application.id && <span className="mt-1 block text-xs text-slate-500">Guardando estado...</span>}
-                  </label>
+                  <div className="w-full lg:max-w-sm">
+                    <p className={`text-sm font-semibold ${application.estado === 'rechazada' ? 'text-rose-300' : application.estado === 'pendiente' ? 'text-amber-300' : 'text-emerald-300'}`}>
+                      {stateLabels[application.estado]}
+                    </p>
+                    {application.estado === 'pendiente' ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button type="button" disabled={updatingId === application.id} onClick={() => void updateApplicationStatus(application, 'aprobada')} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-wait disabled:opacity-60">
+                          {updatingId === application.id ? 'Guardando...' : 'Aceptar candidato'}
+                        </button>
+                        <button type="button" disabled={updatingId === application.id} onClick={() => void updateApplicationStatus(application, 'rechazada')} className="rounded-lg border border-rose-500/40 px-4 py-2 text-sm font-semibold text-rose-300 transition hover:bg-rose-500/10 disabled:cursor-wait disabled:opacity-60">
+                          Rechazar
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
+
+                {(application.descripcion_perfil || application.cv_path) && (
+                  <div className="mt-5 border-t border-slate-700 pt-4">
+                    <h3 className="font-semibold text-white">Perfil del aprendiz</h3>
+                    {application.descripcion_perfil && (
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-300">{application.descripcion_perfil}</p>
+                    )}
+                    {application.cv_path && (
+                      cvUrls[application.id]
+                        ? <a href={cvUrls[application.id]} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-sm font-semibold text-emerald-300 hover:text-emerald-200">Abrir hoja de vida →</a>
+                        : <p className="mt-3 text-xs text-slate-500">Preparando hoja de vida privada...</p>
+                    )}
+                  </div>
+                )}
 
                 {application.evidences.length > 0 && (
                   <div className="mt-5 border-t border-slate-700 pt-4">

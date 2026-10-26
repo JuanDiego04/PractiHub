@@ -111,6 +111,32 @@ create table if not exists public.postulaciones (
   constraint postulaciones_tutor_distinto_estudiante check (tutor_id is null or tutor_id <> estudiante_id)
 );
 
+alter table public.postulaciones
+  add column if not exists empresa_id uuid references public.perfiles(id) on delete cascade,
+  add column if not exists tutor_id uuid references public.perfiles(id) on delete set null,
+  add column if not exists updated_at timestamptz not null default now();
+
+update public.postulaciones as application
+set empresa_id = offer.empresa_id
+from public.ofertas as offer
+where offer.id = application.oferta_id
+  and application.empresa_id is null;
+
+do $$
+begin
+  if exists (
+    select 1
+    from public.postulaciones
+    where empresa_id is null
+  ) then
+    raise exception 'No se pudo completar empresa_id en postulaciones. Verifica que cada postulación apunte a una oferta con empresa_id antes de volver a ejecutar student_module.sql.';
+  end if;
+end;
+$$;
+
+alter table public.postulaciones
+  alter column empresa_id set not null;
+
 create index if not exists postulaciones_estudiante_created_idx
   on public.postulaciones (estudiante_id, created_at desc);
 create index if not exists postulaciones_empresa_estado_idx
@@ -248,6 +274,7 @@ declare
   v_estudiante_id uuid;
   v_nombre text;
   v_empresa text;
+  v_existing_assignment_id uuid;
 begin
   if not public.is_current_user_tutor() then
     raise exception 'Solo un instructor puede asignar estudiantes.';
@@ -291,26 +318,50 @@ begin
     raise exception 'No puedes asignarte a ti mismo como estudiante.';
   end if;
 
-  insert into public.tutor_estudiantes (
-    tutor_id,
-    estudiante_id,
-    empresa,
-    cargo,
-    fecha_inicio,
-    fecha_fin,
-    empresa_id,
-    jefe_inmediato
-  )
-  values (
-    v_tutor_id,
-    v_estudiante_id,
-    v_empresa,
-    trim(p_cargo),
-    p_fecha_inicio,
-    p_fecha_fin,
-    p_empresa_id,
-    nullif(trim(p_jefe_inmediato), '')
-  );
+  if p_empresa_id is not null then
+    select assignment.id into v_existing_assignment_id
+    from public.tutor_estudiantes as assignment
+    where assignment.estudiante_id = v_estudiante_id
+      and assignment.empresa_id = p_empresa_id
+      and assignment.tutor_id is null
+      and assignment.estado = 'en_curso'
+      and lower(trim(assignment.cargo)) = lower(trim(p_cargo))
+    order by assignment.created_at desc
+    limit 1
+    for update;
+  end if;
+
+  if v_existing_assignment_id is not null then
+    update public.tutor_estudiantes
+    set tutor_id = v_tutor_id,
+        empresa = v_empresa,
+        cargo = trim(p_cargo),
+        fecha_inicio = p_fecha_inicio,
+        fecha_fin = p_fecha_fin,
+        jefe_inmediato = nullif(trim(p_jefe_inmediato), '')
+    where id = v_existing_assignment_id;
+  else
+    insert into public.tutor_estudiantes (
+      tutor_id,
+      estudiante_id,
+      empresa,
+      cargo,
+      fecha_inicio,
+      fecha_fin,
+      empresa_id,
+      jefe_inmediato
+    )
+    values (
+      v_tutor_id,
+      v_estudiante_id,
+      v_empresa,
+      trim(p_cargo),
+      p_fecha_inicio,
+      p_fecha_fin,
+      p_empresa_id,
+      nullif(trim(p_jefe_inmediato), '')
+    );
+  end if;
 
   return query select v_estudiante_id, v_nombre;
 end;
@@ -331,6 +382,19 @@ declare
   v_supervisor text;
 begin
   if new.postulacion_id is not null then
+    if new.tutor_id is not null then
+      update public.postulaciones
+      set tutor_id = new.tutor_id,
+          updated_at = now()
+      where id = new.postulacion_id
+        and tutor_id is distinct from new.tutor_id;
+
+      update public.evidencias_estudiantes
+      set tutor_id = new.tutor_id
+      where postulacion_id = new.postulacion_id
+        and tipo = 'academica'
+        and tutor_id is distinct from new.tutor_id;
+    end if;
     return new;
   end if;
 
@@ -394,7 +458,7 @@ where assignment.empresa_id is null
 
 drop trigger if exists tutor_assignment_link_application on public.tutor_estudiantes;
 create trigger tutor_assignment_link_application
-  after insert on public.tutor_estudiantes
+  after insert or update of tutor_id, postulacion_id on public.tutor_estudiantes
   for each row
   execute function public.link_tutor_assignment_to_application();
 

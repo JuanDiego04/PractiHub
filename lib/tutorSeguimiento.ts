@@ -141,7 +141,14 @@ export async function removeEvidence(path: string): Promise<void> {
 
 export function readableDate(date: string | null): string {
   if (!date) return 'Sin definir'
-  return new Intl.DateTimeFormat('es-CO', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`))
+
+  const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(date)
+    ? new Date(`${date}T00:00:00Z`)
+    : new Date(date)
+
+  if (Number.isNaN(parsedDate.getTime())) return 'Sin definir'
+
+  return new Intl.DateTimeFormat('es-CO', { dateStyle: 'medium', timeZone: 'UTC' }).format(parsedDate)
 }
 
 export function statusLabel(status: EstadoPractica): string {

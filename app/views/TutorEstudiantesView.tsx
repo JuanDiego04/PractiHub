@@ -53,11 +53,14 @@ export default function TutorEstudiantesView() {
       const tutorId = await getTutorId()
       const [assignedStudents, companyResult] = await Promise.all([
         getAssignedStudents(tutorId),
-        supabase.from('perfiles').select('id, nombre').eq('rol', 'empresa').order('nombre'),
+        supabase.from('perfiles').select('id, nombre_empresa').eq('rol', 'empresa').not('nombre_empresa', 'is', null).order('nombre_empresa'),
       ])
       if (companyResult.error) throw new Error(`No se pudieron cargar las empresas registradas: ${companyResult.error.message}`)
       setStudents(assignedStudents)
-      setCompanies((companyResult.data || []) as CompanyProfile[])
+      setCompanies((companyResult.data || []).map((company) => ({
+        id: company.id,
+        nombre: company.nombre_empresa || '',
+      })).filter((company) => company.nombre.trim()) as CompanyProfile[])
       setError('')
       setLoadFailed(false)
     } catch (loadError) {
@@ -161,7 +164,7 @@ export default function TutorEstudiantesView() {
         <section className="mb-8 rounded-2xl border border-slate-700 bg-slate-800 p-5 sm:p-6">
           <div className="mb-5">
             <h2 className="text-lg font-semibold text-white">Agregar aprendiz</h2>
-            <p className="mt-1 text-sm text-slate-400">El aprendiz debe tener una cuenta con rol de estudiante en PractiHub.</p>
+            <p className="mt-1 text-sm text-slate-400">El aprendiz debe tener una cuenta con rol de estudiante en PractiHub. Si la empresa ya registró su práctica, selecciona esa empresa y usa el mismo cargo para vincular el registro existente sin duplicarlo.</p>
           </div>
           <form onSubmit={handleAddStudent} className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             <label className="text-sm font-medium text-slate-300">

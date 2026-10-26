@@ -53,7 +53,8 @@ const noveltyTypeLabels: Record<NoveltyType, string> = {
   permiso_personal: 'Permiso personal',
 }
 
-interface TutorAssignment extends EstudianteAsignado {
+interface TutorAssignment extends Omit<EstudianteAsignado, 'tutor_id'> {
+  tutor_id: string | null
   empresa_id: string | null
   jefe_inmediato: string | null
   postulacion_id: string | null
@@ -130,6 +131,10 @@ export default function MiPracticaView() {
     () => evidences.filter((evidence) => evidence.tutor_estudiante_id === selectedPractice?.id),
     [evidences, selectedPractice?.id],
   )
+  const selectedTabEvidence = useMemo(
+    () => selectedEvidence.filter((evidence) => evidence.tipo === activeTab),
+    [activeTab, selectedEvidence],
+  )
   const selectedEvaluations = useMemo(
     () => evaluations.filter((evaluation) => evaluation.estudiante_asignado_id === selectedPractice?.id),
     [evaluations, selectedPractice?.id],
@@ -181,10 +186,12 @@ export default function MiPracticaView() {
       }
 
       const assignmentIds = assignments.map((assignment) => assignment.id)
-      const tutorIds = [...new Set(assignments.map((assignment) => assignment.tutor_id))]
+      const tutorIds = [...new Set(assignments.flatMap((assignment) => assignment.tutor_id ? [assignment.tutor_id] : []))]
       const companyIds = [...new Set(assignments.flatMap((assignment) => assignment.empresa_id ? [assignment.empresa_id] : []))]
       const [tutorsResult, companiesResult, evaluationsResult, evidenceResult] = await Promise.all([
-        supabase.from('perfiles').select('id, nombre').in('id', tutorIds),
+        tutorIds.length
+          ? supabase.from('perfiles').select('id, nombre').in('id', tutorIds)
+          : Promise.resolve({ data: [], error: null }),
         companyIds.length
           ? supabase.from('perfiles').select('id, nombre').in('id', companyIds)
           : Promise.resolve({ data: [], error: null }),
@@ -210,7 +217,7 @@ export default function MiPracticaView() {
         id: assignment.id,
         assignment,
         empresa: assignment.empresa_id ? companies.get(assignment.empresa_id) || null : null,
-        tutor: tutors.get(assignment.tutor_id) || null,
+        tutor: assignment.tutor_id ? tutors.get(assignment.tutor_id) || null : null,
       }))
 
       setPractices(mappedPractices)
@@ -241,7 +248,13 @@ export default function MiPracticaView() {
         ])
         const laborErrors = [tasksResult.error, noveltiesResult.error, feedbackResult.error].filter((queryError) => queryError !== null)
         if (laborErrors.length) {
-          setLaborError(`No se pudo cargar toda la gestión laboral. Ejecuta supabase/student_followup.sql y verifica que el perfil de empresa esté vinculado. Detalle: ${laborErrors.map((queryError) => queryError?.message).join('; ')}`)
+          const missingTables = laborErrors.some((queryError) => (
+            queryError?.code === 'PGRST205'
+            || /could not find the table .* in the schema cache/i.test(queryError?.message || '')
+          ))
+          setLaborError(missingTables
+            ? `Supabase no encuentra las tablas de gestión laboral. Ejecuta completo supabase/student_followup.sql en el proyecto configurado en NEXT_PUBLIC_SUPABASE_URL. Confirma que las tablas entregables_empresa, novedades_practica y feedback_empresa aparezcan al final del resultado. Si ya existen, ejecuta NOTIFY pgrst, 'reload schema'; en el SQL Editor y vuelve a cargar la página. Detalle: ${laborErrors.map((queryError) => queryError?.message).join('; ')}`
+            : `No se pudo cargar toda la gestión laboral. Verifica que la práctica esté vinculada a la empresa correspondiente. Detalle: ${laborErrors.map((queryError) => queryError?.message).join('; ')}`)
         } else {
           setEntregables((tasksResult.data || []) as Entregable[])
           setNovedades((noveltiesResult.data || []) as Novedad[])
@@ -573,7 +586,7 @@ export default function MiPracticaView() {
                 </span>
               </div>
               <dl className="mt-5 grid grid-cols-1 gap-4 border-t border-slate-700 pt-4 sm:grid-cols-2">
-                <div><dt className="text-xs uppercase tracking-wide text-slate-500">Instructor</dt><dd className="mt-1 text-sm text-slate-200">{selectedPractice.tutor?.nombre || 'Instructor'}</dd></div>
+                <div><dt className="text-xs uppercase tracking-wide text-slate-500">Instructor</dt><dd className="mt-1 text-sm text-slate-200">{selectedPractice.tutor?.nombre || (selectedPractice.assignment.tutor_id ? 'Instructor' : 'Pendiente de asignación')}</dd></div>
                 <div><dt className="text-xs uppercase tracking-wide text-slate-500">Jefe inmediato</dt><dd className="mt-1 text-sm text-slate-200">{selectedPractice.assignment.jefe_inmediato || 'Pendiente de asignación'}</dd></div>
                 <div><dt className="text-xs uppercase tracking-wide text-slate-500">Inicio</dt><dd className="mt-1 text-sm text-slate-200">{readableDate(selectedPractice.assignment.fecha_inicio)}</dd></div>
                 <div><dt className="text-xs uppercase tracking-wide text-slate-500">Finalización</dt><dd className="mt-1 text-sm text-slate-200">{readableDate(selectedPractice.assignment.fecha_fin)}</dd></div>
@@ -727,6 +740,8 @@ export default function MiPracticaView() {
               <p className="text-sm font-semibold text-emerald-300">SEGUIMIENTO ACADÉMICO · INSTRUCTOR</p>
               <h2 className="mt-2 text-xl font-bold text-white">Bitácora y evaluaciones</h2>
               {selectedPractice.assignment.estado === 'en_curso' ? (
+                <>
+                {!selectedPractice.assignment.tutor_id && <p className="mt-4 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3 text-sm text-amber-200">Aún no tienes instructor asignado. Puedes enviar tus archivos; quedarán disponibles para revisión cuando el instructor se vincule a tu práctica.</p>}
                 <form onSubmit={(event) => void submitEvidence(event, 'academica')} className="mt-5 space-y-4">
                   <label className="block text-sm font-medium text-slate-300">Título de la bitácora
                     <input required maxLength={120} value={academicTitle} onChange={(event) => setAcademicTitle(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none focus:border-emerald-400" />
@@ -737,6 +752,7 @@ export default function MiPracticaView() {
                   <FileField file={academicFile} setFile={setAcademicFile} onInvalid={setError} />
                   <SubmitButton submitting={submitting === 'academica'}>Enviar bitácora</SubmitButton>
                 </form>
+                </>
               ) : (
                 <p className="mt-4 text-sm text-slate-400">La práctica finalizó. Puedes consultar tu historial, pero ya no enviar nuevas bitácoras.</p>
               )}
@@ -769,22 +785,28 @@ export default function MiPracticaView() {
           </>
         )}
 
-        {selectedPractice && selectedEvidence.length > 0 && (
+        {selectedPractice && (
           <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-800 p-5 sm:p-6">
             <h2 className="text-lg font-semibold text-white">Historial de entregas</h2>
-            <ul className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-              {selectedEvidence.map((evidence) => (
-                <li key={evidence.id} className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${evidence.tipo === 'academica' ? 'bg-blue-400/10 text-blue-300' : 'bg-violet-400/10 text-violet-300'}`}>{evidence.tipo === 'academica' ? 'Instructor' : 'Empresa'}</span>
-                    <span className="text-xs text-slate-500">{readableDate(evidence.created_at.slice(0, 10))}</span>
-                  </div>
-                  <h3 className="mt-3 font-semibold text-white">{evidence.titulo}</h3>
-                  <p className="mt-1 whitespace-pre-wrap text-sm leading-5 text-slate-400">{evidence.descripcion}</p>
-                  {signedUrls[evidence.id] && <a href={signedUrls[evidence.id] || undefined} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-sm font-semibold text-emerald-300 hover:text-emerald-200">Abrir archivo →</a>}
-                </li>
-              ))}
-            </ul>
+            {selectedTabEvidence.length === 0 ? (
+              <p className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-900/50 p-4 text-center text-sm text-slate-400">
+                {activeTab === 'academica' ? 'Aún no has enviado bitácoras al instructor.' : 'Aún no has enviado archivos a la empresa.'}
+              </p>
+            ) : (
+              <ul className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                {selectedTabEvidence.map((evidence) => (
+                  <li key={evidence.id} className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${evidence.tipo === 'academica' ? 'bg-blue-400/10 text-blue-300' : 'bg-violet-400/10 text-violet-300'}`}>{evidence.tipo === 'academica' ? 'Instructor' : 'Empresa'}</span>
+                      <span className="text-xs text-slate-500">{readableDate(evidence.created_at.slice(0, 10))}</span>
+                    </div>
+                    <h3 className="mt-3 font-semibold text-white">{evidence.titulo}</h3>
+                    <p className="mt-1 whitespace-pre-wrap text-sm leading-5 text-slate-400">{evidence.descripcion}</p>
+                    {signedUrls[evidence.id] && <a href={signedUrls[evidence.id] || undefined} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-sm font-semibold text-emerald-300 hover:text-emerald-200">Abrir archivo →</a>}
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         )}
         {completingTask && (

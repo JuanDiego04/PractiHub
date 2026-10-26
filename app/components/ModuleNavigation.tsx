@@ -12,6 +12,7 @@ interface ModuleLink {
 
 const linksByRole: Record<string, ModuleLink[]> = {
   estudiante: [
+    { label: 'Buscar ofertas', href: '/buscar-practicas' },
     { label: 'Mi práctica', href: '/mi-practica' },
     { label: 'Mi perfil', href: '/perfil' },
   ],
@@ -21,7 +22,9 @@ const linksByRole: Record<string, ModuleLink[]> = {
     { label: 'Mi perfil', href: '/perfil' },
   ],
   empresa: [
-    { label: 'Postulaciones y practicantes', href: '/empresa/seguimiento' },
+    { label: 'Mis ofertas', href: '/mis-ofertas' },
+    { label: 'Postulaciones', href: '/postulaciones' },
+    { label: 'Mis practicantes', href: '/mis-practicantes' },
     { label: 'Mi perfil', href: '/perfil' },
   ],
 }
@@ -37,7 +40,7 @@ function BackArrow() {
 export default function ModuleNavigation() {
   const pathname = usePathname()
   const [role, setRole] = useState<string | null>(null)
-  const [hasStudentPractice, setHasStudentPractice] = useState(false)
+  const [hasStudentPractice, setHasStudentPractice] = useState<boolean | null>(null)
   const [studentPracticeError, setStudentPracticeError] = useState('')
 
   useEffect(() => {
@@ -78,7 +81,11 @@ export default function ModuleNavigation() {
   }, [])
 
   const links = role
-    ? (linksByRole[role] || []).filter((item) => item.href !== '/mi-practica' || hasStudentPractice)
+    ? (linksByRole[role] || []).filter((item) => {
+      if (item.href === '/mi-practica') return hasStudentPractice === true
+      if (item.href === '/buscar-practicas') return hasStudentPractice === false
+      return true
+    })
     : []
 
   return (

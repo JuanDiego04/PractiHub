@@ -6,6 +6,7 @@ import Link from 'next/link'
 import ModuleNavigation from '@/app/components/ModuleNavigation'
 import { supabase } from '@/lib/supabase'
 import { getAssignedStudents, getEvaluations } from '@/lib/tutorSeguimiento'
+import StudentOpportunitiesView from '@/app/views/StudentOpportunitiesView'
 
 interface Perfil {
   nombre: string
@@ -138,7 +139,7 @@ export default function DashboardHomeView() {
   const [tutorMetricError, setTutorMetricError] = useState('')
   const [tutorMetricValues, setTutorMetricValues] = useState<{ students: number; evaluations: number } | null>(null)
   const [studentMetricValues, setStudentMetricValues] = useState<{ activePractices: number; evidence: number; evaluations: number } | null>(null)
-  const [studentPracticeAvailable, setStudentPracticeAvailable] = useState(false)
+  const [studentPracticeAvailable, setStudentPracticeAvailable] = useState<boolean | null>(null)
   const [studentPracticeError, setStudentPracticeError] = useState('')
 
   useEffect(() => {
@@ -188,6 +189,7 @@ export default function DashboardHomeView() {
             if (assignmentError) throw new Error(`No se pudieron cargar tus seguimientos: ${assignmentError.message}`)
 
             const assignmentRows = assignments || []
+            if (!cancelled) setStudentPracticeAvailable(assignmentRows.length > 0)
             const assignmentIds = assignmentRows.map((assignment) => assignment.id)
             const [evidenceResult, evaluationsResult] = assignmentIds.length
               ? await Promise.all([
@@ -199,7 +201,6 @@ export default function DashboardHomeView() {
             if (evidenceResult.error) throw new Error(`No se pudieron cargar tus bitácoras: ${evidenceResult.error.message}`)
             if (evaluationsResult.error) throw new Error(`No se pudieron cargar tus evaluaciones: ${evaluationsResult.error.message}`)
             if (!cancelled) {
-              setStudentPracticeAvailable(assignmentRows.length > 0)
               setStudentMetricValues({
                 activePractices: assignmentRows.filter((assignment) => assignment.estado === 'en_curso').length,
                 evidence: evidenceResult.count || 0,
@@ -288,6 +289,18 @@ export default function DashboardHomeView() {
     )
   }
 
+  if (perfil.rol === 'estudiante' && studentPracticeAvailable === false) {
+    return (
+      <>
+        <ModuleNavigation />
+        {studentPracticeError && (
+          <p role="alert" className="mx-auto max-w-7xl px-4 pt-4 text-sm text-amber-300 sm:px-6 lg:px-10">{studentPracticeError}</p>
+        )}
+        <StudentOpportunitiesView studentName={perfil.nombre} />
+      </>
+    )
+  }
+
   const metrics = perfil.rol === 'tutor' && tutorMetricValues
     ? dashboard.metrics.map((metric, index) => ({
       ...metric,
@@ -354,16 +367,20 @@ export default function DashboardHomeView() {
           </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {perfil.rol === 'estudiante' && (
-              studentPracticeAvailable ? (
+              studentPracticeAvailable === true ? (
                 <QuickAction
                   label="Abrir mi seguimiento"
                   detail="Envía bitácoras y consulta las evaluaciones de tu instructor"
                   href="/mi-practica"
                   primary
                 />
-              ) : (
+              ) : studentPracticeAvailable === false ? (
                 <p className="rounded-xl border border-slate-700 bg-slate-900/70 px-5 py-4 text-sm leading-6 text-slate-400">
                   El seguimiento aparecerá aquí cuando tu instructor registre tu práctica.
+                </p>
+              ) : (
+                <p role="status" className="rounded-xl border border-slate-700 bg-slate-900/70 px-5 py-4 text-sm leading-6 text-slate-400">
+                  Verificando el estado de tu práctica...
                 </p>
               )
             )}
@@ -371,11 +388,12 @@ export default function DashboardHomeView() {
               <>
                 <QuickAction
                   label="Revisar postulaciones"
-                  detail="Consulta candidatos y entregables laborales"
-                  href="/empresa/seguimiento"
+                  detail="Revisa y responde a los candidatos de tus ofertas"
+                  href="/postulaciones"
                   primary
                 />
-                <QuickAction label="Publicar nueva oferta" detail="Atrae talento a tu equipo" />
+                <QuickAction label="Publicar nueva oferta" detail="Atrae talento a tu equipo" href="/mis-ofertas" />
+                <QuickAction label="Gestionar practicantes" detail="Asigna tareas y revisa novedades" href="/mis-practicantes" />
               </>
             )}
             {perfil.rol === 'tutor' && (
