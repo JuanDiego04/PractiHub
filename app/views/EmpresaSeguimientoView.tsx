@@ -1,10 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
+import CompanyInterviewScheduler from '@/app/components/CompanyInterviewScheduler'
 import { supabase } from '@/lib/supabase'
 import { readableDate } from '@/lib/tutorSeguimiento'
+import { interviewSchemaError, isInterviewSchemaUnavailable, type CompanyInterview } from '@/lib/companyInterviews'
 
 type ApplicationState = 'pendiente' | 'aprobada' | 'contratada' | 'rechazada'
+type ApplicationSection = 'pendientes' | 'aceptados' | 'contratados' | 'noSeleccionados'
 
 export interface PostulacionConPerfil {
   id: string
@@ -19,37 +23,29 @@ export interface PostulacionConPerfil {
   estudiante: { nombre: string; email: string } | null
 }
 
-interface CompanyEvidence {
-  id: string
-  postulacion_id: string
-  titulo: string
-  descripcion: string
-  archivo_path: string
-  created_at: string
-}
-
-type CompanyApplication = PostulacionConPerfil & { evidences: CompanyEvidence[] }
-
 const stateLabels: Record<ApplicationState, string> = {
   pendiente: 'Pendiente',
-  aprobada: 'Aceptada · pendiente de instructor',
-  contratada: 'Contratada',
+  aprobada: 'Aceptada · aprendiz notificado',
+  contratada: 'Vinculada a contrato',
   rechazada: 'No seleccionada',
 }
 
 export default function EmpresaSeguimientoView() {
-  const [applications, setApplications] = useState<CompanyApplication[]>([])
+  const [applications, setApplications] = useState<PostulacionConPerfil[]>([])
+  const [interviews, setInterviews] = useState<Record<string, CompanyInterview>>({})
+  const [activeSection, setActiveSection] = useState<ApplicationSection>('pendientes')
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+  const [interviewSetupError, setInterviewSetupError] = useState('')
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
-  const [evidenceUrls, setEvidenceUrls] = useState<Record<string, string>>({})
   const [cvUrls, setCvUrls] = useState<Record<string, string>>({})
 
   const loadApplications = useCallback(async () => {
     setLoading(true)
     setLoadError('')
+    setInterviewSetupError('')
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser()
       if (authError) throw new Error(`No se pudo verificar la sesión: ${authError.message}`)
@@ -66,27 +62,36 @@ export default function EmpresaSeguimientoView() {
         .order('created_at', { ascending: false })
       if (applicationsError) throw new Error(`No se pudieron cargar las postulaciones: ${applicationsError.message}`)
 
-      const applicationRows = (rows || []) as unknown as Omit<CompanyApplication, 'estudiante' | 'evidences'>[]
-      const ids = applicationRows.map((application) => application.id)
+      const applicationRows = (rows || []) as unknown as Omit<PostulacionConPerfil, 'estudiante'>[]
       const studentIds = [...new Set(applicationRows.map((application) => application.estudiante_id))]
-      const [studentsResult, evidenceResult] = await Promise.all([
-        studentIds.length > 0
-          ? supabase.from('perfiles').select('id, nombre, email').in('id', studentIds)
-          : Promise.resolve({ data: [], error: null }),
-        ids.length > 0
-          ? supabase.from('evidencias_estudiantes').select('id, postulacion_id, titulo, descripcion, archivo_path, created_at').eq('empresa_id', user.id).eq('tipo', 'empresa').in('postulacion_id', ids).order('created_at', { ascending: false })
-          : Promise.resolve({ data: [], error: null }),
-      ])
+      const studentsResult = studentIds.length > 0
+        ? await supabase.from('perfiles').select('id, nombre, email').in('id', studentIds)
+        : { data: [], error: null }
       if (studentsResult.error) throw new Error(`No se pudieron cargar los perfiles de estudiantes: ${studentsResult.error.message}`)
-      if (evidenceResult.error) throw new Error(`No se pudieron cargar los entregables: ${evidenceResult.error.message}`)
+
+      const acceptedApplicationIds = applicationRows
+        .filter((application) => application.estado === 'aprobada')
+        .map((application) => application.id)
+      const interviewsResult = acceptedApplicationIds.length
+        ? await supabase
+          .from('entrevistas_postulacion')
+          .select('id, postulacion_id, empresa_id, estudiante_id, fecha_hora, modalidad, ubicacion, notas, created_at, updated_at')
+          .in('postulacion_id', acceptedApplicationIds)
+        : { data: [], error: null }
+      if (interviewsResult.error) {
+        if (isInterviewSchemaUnavailable(interviewsResult.error.message, interviewsResult.error.code)) {
+          setInterviewSetupError(interviewSchemaError(`No se pudieron cargar las entrevistas: ${interviewsResult.error.message}`, interviewsResult.error.code))
+        } else {
+          throw new Error(`No se pudieron cargar las entrevistas: ${interviewsResult.error.message}`)
+        }
+      }
 
       const students = new Map((studentsResult.data || []).map((student) => [student.id, { nombre: student.nombre, email: student.email }]))
-      const evidence = (evidenceResult.data || []) as CompanyEvidence[]
+      setInterviews(Object.fromEntries((interviewsResult.data || []).map((interview) => [interview.postulacion_id, interview as CompanyInterview])))
       setApplications(applicationRows.map((application) => ({
         ...application,
         oferta: Array.isArray(application.oferta) ? application.oferta[0] : application.oferta,
         estudiante: students.get(application.estudiante_id) || null,
-        evidences: evidence.filter((item) => item.postulacion_id === application.id),
       })))
     } catch (loadFailure) {
       setLoadError(loadFailure instanceof Error ? loadFailure.message : 'No se pudieron cargar las postulaciones.')
@@ -98,7 +103,7 @@ export default function EmpresaSeguimientoView() {
   useEffect(() => {
     let cancelled = false
     const pending = applications.filter(
-      (application): application is CompanyApplication & { cv_path: string } => Boolean(application.cv_path) && !(application.id in cvUrls),
+      (application): application is PostulacionConPerfil & { cv_path: string } => Boolean(application.cv_path) && !(application.id in cvUrls),
     )
     if (pending.length === 0) return
 
@@ -123,27 +128,7 @@ export default function EmpresaSeguimientoView() {
     void loadApplications()
   }, [loadApplications])
 
-  useEffect(() => {
-    let cancelled = false
-    const pending = applications.flatMap((application) => application.evidences).filter((evidence) => !(evidence.id in evidenceUrls))
-    if (pending.length === 0) return
-
-    void Promise.all(pending.map(async (evidence) => {
-      const { data, error: urlError } = await supabase.storage
-        .from('evidencias_estudiantes')
-        .createSignedUrl(evidence.archivo_path, 60 * 60)
-      if (urlError) throw new Error(`No se pudo abrir el entregable «${evidence.titulo}»: ${urlError.message}`)
-      return [evidence.id, data.signedUrl] as const
-    })).then((results) => {
-      if (!cancelled) setEvidenceUrls((current) => ({ ...current, ...Object.fromEntries(results) }))
-    }).catch((urlError: unknown) => {
-      if (!cancelled) setError(urlError instanceof Error ? urlError.message : 'No se pudieron abrir los entregables.')
-    })
-
-    return () => { cancelled = true }
-  }, [applications, evidenceUrls])
-
-  async function updateApplicationStatus(application: CompanyApplication, status: 'aprobada' | 'rechazada') {
+  async function updateApplicationStatus(application: PostulacionConPerfil, status: 'aprobada' | 'contratada' | 'rechazada') {
     setUpdatingId(application.id)
     setMessage('')
     setError('')
@@ -159,13 +144,28 @@ export default function EmpresaSeguimientoView() {
 
       setApplications((current) => current.map((item) => item.id === application.id ? { ...item, estado: status } : item))
       setMessage(status === 'aprobada'
-        ? `Se aceptó a ${application.estudiante?.nombre || 'el estudiante'}. Un instructor deberá asignar la práctica para habilitar su seguimiento.`
-        : `Se rechazó la postulación de ${application.estudiante?.nombre || 'el estudiante'}.`)
+        ? `Se aceptó a ${application.estudiante?.nombre || 'el estudiante'}. La aceptación ya aparece en sus postulaciones.`
+        : status === 'contratada'
+          ? `${application.estudiante?.nombre || 'El candidato'} quedó vinculado a contrato. Registra la práctica en Seguimiento laboral para iniciar el seguimiento.`
+          : `Se rechazó la postulación de ${application.estudiante?.nombre || 'el estudiante'}.`)
     } catch (updateFailure) {
       setError(updateFailure instanceof Error ? updateFailure.message : 'No se pudo actualizar la postulación.')
     } finally {
       setUpdatingId(null)
     }
+  }
+
+  const sectionApplications = applications.filter((application) => {
+    if (activeSection === 'pendientes') return application.estado === 'pendiente'
+    if (activeSection === 'aceptados') return application.estado === 'aprobada'
+    if (activeSection === 'contratados') return application.estado === 'contratada'
+    return application.estado === 'rechazada'
+  })
+  const sectionCounts: Record<ApplicationSection, number> = {
+    pendientes: applications.filter((application) => application.estado === 'pendiente').length,
+    aceptados: applications.filter((application) => application.estado === 'aprobada').length,
+    contratados: applications.filter((application) => application.estado === 'contratada').length,
+    noSeleccionados: applications.filter((application) => application.estado === 'rechazada').length,
   }
 
   return (
@@ -174,11 +174,12 @@ export default function EmpresaSeguimientoView() {
         <header className="mb-8">
           <p className="text-sm font-semibold text-emerald-400">PRACTIHUB · EMPRESA</p>
           <h1 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">Revisión de postulaciones</h1>
-          <p className="mt-2 max-w-2xl text-slate-400">Revisa los perfiles, acepta candidatos y consulta sus postulaciones. El seguimiento inicia cuando un instructor registra la práctica.</p>
+          <p className="mt-2 max-w-2xl text-slate-400">Organiza las postulaciones pendientes, los candidatos aceptados y las vinculaciones a contrato.</p>
         </header>
 
         {message && <p role="status" className="mb-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">{message}</p>}
         {error && <p role="alert" className="mb-5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">{error}</p>}
+        {interviewSetupError && <p role="alert" className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100">{interviewSetupError}</p>}
 
         {loading ? (
           <p className="rounded-2xl border border-slate-700 bg-slate-800 p-8 text-center text-slate-400">Cargando postulaciones...</p>
@@ -193,8 +194,50 @@ export default function EmpresaSeguimientoView() {
             <p className="mt-2 text-sm text-slate-400">Cuando un estudiante se postule a una de tus ofertas, podrás revisar su perfil aquí.</p>
           </section>
         ) : (
-          <div className="space-y-4">
-            {applications.map((application) => (
+          <>
+            <div role="tablist" aria-label="Estados de postulaciones" className="mb-5 flex flex-wrap gap-2 border-b border-slate-700 pb-3">
+              {([
+                ['pendientes', 'Pendientes'],
+                ['aceptados', 'Aceptados'],
+                ['contratados', 'Contratados'],
+                ['noSeleccionados', 'No seleccionados'],
+              ] as const).map(([section, label]) => (
+                <button
+                  key={section}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeSection === section}
+                  onClick={() => setActiveSection(section)}
+                  className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition ${activeSection === section ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                >
+                  {label} ({sectionCounts[section]})
+                </button>
+              ))}
+            </div>
+            {sectionApplications.length === 0 ? (
+              <section className="rounded-2xl border border-dashed border-slate-700 bg-slate-800/50 p-10 text-center">
+                <h2 className="text-lg font-semibold text-white">
+                  {activeSection === 'pendientes'
+                    ? 'No tienes postulaciones pendientes'
+                    : activeSection === 'aceptados'
+                      ? 'Aún no tienes candidatos aceptados'
+                      : activeSection === 'contratados'
+                        ? 'No tienes aprendices vinculados a contrato'
+                        : 'No tienes candidatos descartados'}
+                </h2>
+                <p className="mt-2 text-sm text-slate-400">
+                  {activeSection === 'pendientes'
+                    ? 'Las nuevas postulaciones aparecerán aquí para que puedas revisar sus perfiles.'
+                    : activeSection === 'aceptados'
+                      ? 'Cuando aceptes una postulación, el aprendiz aparecerá aquí y verá el aviso en sus postulaciones.'
+                      : activeSection === 'contratados'
+                        ? 'Los aprendices vinculados a contrato aparecen aquí separados de los candidatos en proceso.'
+                        : 'Las postulaciones que rechaces aparecerán aquí.'}
+                </p>
+              </section>
+            ) : (
+              <div role="tabpanel" className="space-y-4">
+                {sectionApplications.map((application) => (
               <article key={application.id} className="rounded-2xl border border-slate-700 bg-slate-800 p-5 sm:p-6">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
@@ -216,9 +259,33 @@ export default function EmpresaSeguimientoView() {
                           Rechazar
                         </button>
                       </div>
+                    ) : application.estado === 'aprobada' ? (
+                      <div className="mt-3">
+                        <p className="text-xs leading-5 text-slate-400">El aprendiz ya ve que continúa en el proceso. Si cumple los requisitos, vincúlalo a contrato.</p>
+                        <button type="button" disabled={updatingId === application.id} onClick={() => void updateApplicationStatus(application, 'contratada')} className="mt-3 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-wait disabled:opacity-60">
+                          {updatingId === application.id ? 'Guardando...' : 'Vincular a contrato'}
+                        </button>
+                        <button type="button" disabled={updatingId === application.id} onClick={() => void updateApplicationStatus(application, 'rechazada')} className="mt-3 rounded-lg border border-rose-500/40 px-4 py-2 text-sm font-semibold text-rose-300 transition hover:bg-rose-500/10 disabled:cursor-wait disabled:opacity-60 sm:ml-2">
+                          {updatingId === application.id ? 'Guardando...' : 'Descartar candidato'}
+                        </button>
+                      </div>
+                    ) : application.estado === 'contratada' ? (
+                      <Link href="/mis-practicantes" className="mt-3 inline-flex rounded-lg border border-emerald-400/40 px-4 py-2 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-400/10">
+                        Ir a seguimiento laboral
+                      </Link>
                     ) : null}
                   </div>
                 </div>
+
+                {application.estado === 'aprobada' && (
+                  <CompanyInterviewScheduler
+                    applicationId={application.id}
+                    companyId={application.empresa_id}
+                    studentId={application.estudiante_id}
+                    interview={interviews[application.id] || null}
+                    onScheduled={(interview) => setInterviews((current) => ({ ...current, [application.id]: interview }))}
+                  />
+                )}
 
                 {(application.descripcion_perfil || application.cv_path) && (
                   <div className="mt-5 border-t border-slate-700 pt-4">
@@ -234,26 +301,11 @@ export default function EmpresaSeguimientoView() {
                   </div>
                 )}
 
-                {application.evidences.length > 0 && (
-                  <div className="mt-5 border-t border-slate-700 pt-4">
-                    <h3 className="font-semibold text-white">Entregables laborales ({application.evidences.length})</h3>
-                    <ul className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                      {application.evidences.map((evidence) => (
-                        <li key={evidence.id} className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <h4 className="font-medium text-slate-100">{evidence.titulo}</h4>
-                            <span className="text-xs text-slate-500">{readableDate(evidence.created_at.slice(0, 10))}</span>
-                          </div>
-                          <p className="mt-2 whitespace-pre-wrap text-sm leading-5 text-slate-400">{evidence.descripcion}</p>
-                          {evidenceUrls[evidence.id] && <a href={evidenceUrls[evidence.id]} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-sm font-semibold text-emerald-300 hover:text-emerald-200">Abrir entregable →</a>}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
               </article>
-            ))}
-          </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </main>

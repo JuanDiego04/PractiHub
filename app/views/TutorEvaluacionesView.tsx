@@ -405,6 +405,13 @@ export default function TutorEvaluacionesView() {
           </div>
         ) : (
           <div className="space-y-5">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Aprendices en seguimiento</h2>
+                <p className="mt-1 text-sm text-slate-400">Despliega cada ficha para registrar o consultar sus evaluaciones.</p>
+              </div>
+              <span className="text-sm text-slate-500">{students.length} aprendiz{students.length === 1 ? '' : 'es'}</span>
+            </div>
             {students.map((student) => {
               const draft = drafts[student.id] || {
                 calificacion: '',
@@ -417,18 +424,30 @@ export default function TutorEvaluacionesView() {
                 : undefined
 
               return (
-                <article key={student.id} className="overflow-hidden rounded-2xl border border-slate-700 bg-slate-800">
-                  <div className="flex flex-col gap-3 border-b border-slate-700 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-                    <div>
-                      <h2 className="font-semibold text-white">{student.nombre}</h2>
-                      <p className="mt-1 text-sm text-slate-400">{student.empresa} · {student.cargo}</p>
-                    </div>
-                    <Link href={`/estudiantes/${student.id}`} className="text-sm font-semibold text-emerald-300 transition hover:text-emerald-200">
-                      Ver seguimiento →
-                    </Link>
-                  </div>
+                <details key={student.id} className="group overflow-hidden rounded-2xl border border-slate-700 bg-slate-800 open:border-slate-600">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-5 transition hover:bg-slate-700/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-400 sm:px-6 [&::-webkit-details-marker]:hidden">
+                    <span className="min-w-0">
+                      <span className="block truncate font-semibold text-white">{student.nombre}</span>
+                      <span className="mt-1 block truncate text-sm text-slate-400">{student.empresa} · {student.cargo}</span>
+                      <span className="mt-2 inline-flex rounded-full border border-slate-700 bg-slate-900/60 px-2.5 py-1 text-xs text-slate-400">
+                        {history.length} evaluación{history.length === 1 ? '' : 'es'}
+                      </span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-3 text-sm font-semibold text-emerald-300">
+                      <span className="hidden sm:inline">Ver evaluaciones</span>
+                      <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5 transition-transform group-open:rotate-180">
+                        <path d="m5 7.5 5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                  </summary>
 
-                  <div className="grid grid-cols-1 gap-6 p-5 sm:p-6 lg:grid-cols-2">
+                  <div className="border-t border-slate-700 p-5 sm:p-6">
+                    <div className="mb-5 flex justify-end">
+                      <Link href={`/estudiantes/${student.id}`} className="text-sm font-semibold text-emerald-300 transition hover:text-emerald-200">
+                        Ver seguimiento completo →
+                      </Link>
+                    </div>
+                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                     <form id={`evaluation-form-${student.id}`} onSubmit={(event) => void handleSubmit(event, student)} className="space-y-4">
                       <h3 className="text-sm font-semibold text-slate-200">
                         {editingEvaluation ? 'Editar evaluación' : 'Nueva evaluación'}
@@ -584,8 +603,9 @@ export default function TutorEvaluacionesView() {
                         </ol>
                       )}
                     </section>
+                    </div>
                   </div>
-                </article>
+                </details>
               )
             })}
           </div>

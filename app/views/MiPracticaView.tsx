@@ -592,46 +592,56 @@ export default function MiPracticaView() {
                 <div><dt className="text-xs uppercase tracking-wide text-slate-500">Finalización</dt><dd className="mt-1 text-sm text-slate-200">{readableDate(selectedPractice.assignment.fecha_fin)}</dd></div>
               </dl>
               {selectedPractice.assignment.empresa_id ? (
-                selectedPractice.assignment.estado === 'en_curso' ? (
-                  <form onSubmit={(event) => void submitEvidence(event, 'empresa')} className="mt-6 space-y-4 border-t border-slate-700 pt-5">
-                    <div>
-                      <h3 className="font-semibold text-white">Entregables para la empresa</h3>
-                      <p className="mt-1 text-xs leading-5 text-slate-400">Comparte reportes o productos técnicos con la empresa.</p>
-                    </div>
-                    <label className="block text-sm font-medium text-slate-300">Título
-                      <input required maxLength={120} value={companyTitle} onChange={(event) => setCompanyTitle(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none focus:border-emerald-400" />
-                    </label>
-                    <label className="block text-sm font-medium text-slate-300">Descripción
-                      <textarea required minLength={5} rows={3} value={companyDescription} onChange={(event) => setCompanyDescription(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none focus:border-emerald-400" />
-                    </label>
-                    <FileField file={companyFile} setFile={setCompanyFile} onInvalid={setError} />
-                    <SubmitButton submitting={submitting === 'empresa'}>Enviar entregable</SubmitButton>
-                  </form>
-                ) : (
-                  <p className="mt-6 border-t border-slate-700 pt-5 text-sm text-slate-400">La práctica finalizó. Puedes consultar tu historial, pero ya no enviar nuevos entregables.</p>
-                )
+                <details className="mt-5 rounded-xl border border-slate-700 bg-slate-900/40">
+                  <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 p-4 [&::-webkit-details-marker]:hidden">
+                    <span>
+                      <span className="block font-semibold text-white">Entregables para la empresa</span>
+                      <span className="mt-1 block text-xs text-slate-400">Comparte reportes o productos técnicos.</span>
+                    </span>
+                    <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">{selectedEvidence.filter((evidence) => evidence.tipo === 'empresa').length} enviados</span>
+                  </summary>
+                  <div className="space-y-4 border-t border-slate-700 p-4">
+                    {selectedPractice.assignment.estado === 'en_curso' ? (
+                      <form onSubmit={(event) => void submitEvidence(event, 'empresa')} className="space-y-4">
+                        <label className="block text-sm font-medium text-slate-300">Título
+                          <input required maxLength={120} value={companyTitle} onChange={(event) => setCompanyTitle(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none focus:border-emerald-400" />
+                        </label>
+                        <label className="block text-sm font-medium text-slate-300">Descripción
+                          <textarea required minLength={5} rows={3} value={companyDescription} onChange={(event) => setCompanyDescription(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none focus:border-emerald-400" />
+                        </label>
+                        <FileField file={companyFile} setFile={setCompanyFile} onInvalid={setError} />
+                        <SubmitButton submitting={submitting === 'empresa'}>Enviar entregable</SubmitButton>
+                      </form>
+                    ) : (
+                      <p className="text-sm text-slate-400">La práctica finalizó. Puedes consultar tu historial, pero ya no enviar nuevos entregables.</p>
+                    )}
+                  </div>
+                </details>
               ) : (
-                <p className="mt-6 border-t border-slate-700 pt-5 text-sm leading-6 text-slate-400">La empresa todavía no está vinculada a tu registro. Puedes enviar bitácoras al instructor; cuando vinculemos el perfil de la empresa aparecerán aquí los entregables.</p>
+                <p className="mt-5 rounded-xl border border-dashed border-slate-700 p-4 text-sm leading-6 text-slate-400">La empresa todavía no está vinculada a tu registro. Puedes enviar bitácoras al instructor; cuando vinculemos el perfil de la empresa aparecerán aquí los entregables.</p>
               )}
 
               {selectedPractice.assignment.empresa_id && (
                 <>
-                  {laborError && <p role="alert" className="mt-5 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm leading-6 text-rose-200">{laborError}</p>}
+                  {laborError && <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm leading-6 text-rose-200">{laborError}</p>}
 
-                  <section className="mt-6 border-t border-slate-700 pt-5">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <h3 className="font-semibold text-white">Tareas y entregables laborales</h3>
-                        <p className="mt-1 text-xs text-slate-400">Completa cada tarea y comparte el enlace de tu evidencia.</p>
-                      </div>
-                      {selectedTasks.length > 0 && <span className="text-xs text-slate-500">{selectedTasks.filter((task) => task.estado === 'completado').length}/{selectedTasks.length} completadas</span>}
-                    </div>
+                  <details className="rounded-xl border border-slate-700 bg-slate-900/40">
+                    <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 p-4 [&::-webkit-details-marker]:hidden">
+                      <span>
+                        <span className="block font-semibold text-white">Tareas y entregables laborales</span>
+                        <span className="mt-1 block text-xs text-slate-400">Completa las tareas asignadas y comparte su evidencia.</span>
+                      </span>
+                      <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">
+                        {selectedTasks.filter((task) => task.estado === 'completado').length}/{selectedTasks.length} completadas
+                      </span>
+                    </summary>
+                    <div className="border-t border-slate-700 p-4">
                     {laborLoading ? (
-                      <p className="mt-4 animate-pulse text-sm text-slate-400">Cargando tareas...</p>
+                      <p className="animate-pulse text-sm text-slate-400">Cargando tareas...</p>
                     ) : selectedTasks.length === 0 ? (
-                      <p className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-900/50 p-5 text-center text-sm text-slate-400">No tienes tareas pendientes por el momento.</p>
+                      <p className="rounded-xl border border-dashed border-slate-700 bg-slate-900/50 p-5 text-center text-sm text-slate-400">No tienes tareas pendientes por el momento.</p>
                     ) : (
-                      <ul className="mt-4 space-y-3">
+                      <ul className="space-y-3">
                         {selectedTasks.map((task) => (
                           <li key={task.id} className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
                             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -655,13 +665,20 @@ export default function MiPracticaView() {
                         ))}
                       </ul>
                     )}
-                  </section>
+                    </div>
+                  </details>
 
-                  <section className="mt-6 border-t border-slate-700 pt-5">
-                    <h3 className="font-semibold text-white">Reportar una novedad</h3>
-                    <p className="mt-1 text-xs leading-5 text-slate-400">Informa a la empresa sobre retrasos, ausencias o permisos.</p>
+                  <details className="rounded-xl border border-slate-700 bg-slate-900/40">
+                    <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 p-4 [&::-webkit-details-marker]:hidden">
+                      <span>
+                        <span className="block font-semibold text-white">Novedades</span>
+                        <span className="mt-1 block text-xs text-slate-400">Reporta retrasos, ausencias o permisos a la empresa.</span>
+                      </span>
+                      <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">{selectedNovelties.length} reportadas</span>
+                    </summary>
+                    <div className="space-y-4 border-t border-slate-700 p-4">
                     {selectedPractice.assignment.estado === 'en_curso' ? (
-                      <form onSubmit={(event) => void submitNovelty(event)} className="mt-4 space-y-3">
+                      <form onSubmit={(event) => void submitNovelty(event)} className="space-y-3">
                         <label className="block text-sm font-medium text-slate-300">Tipo de novedad
                           <select value={noveltyType} onChange={(event) => setNoveltyType(event.target.value as NoveltyType)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none focus:border-rose-400">
                             <option value="retraso">Retraso</option>
@@ -677,7 +694,7 @@ export default function MiPracticaView() {
                         </button>
                       </form>
                     ) : <p className="mt-3 text-sm text-slate-400">La práctica finalizó; ya no puedes enviar novedades.</p>}
-                    <div className="mt-4">
+                    <div>
                       {laborLoading ? (
                         <p className="text-sm text-slate-400">Cargando novedades...</p>
                       ) : selectedNovelties.length === 0 ? (
@@ -697,16 +714,24 @@ export default function MiPracticaView() {
                         </ul>
                       )}
                     </div>
-                  </section>
+                    </div>
+                  </details>
 
-                  <section className="mt-6 border-t border-slate-700 pt-5">
-                    <h3 className="font-semibold text-white">Feedback de la empresa</h3>
+                  <details className="rounded-xl border border-slate-700 bg-slate-900/40">
+                    <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 p-4 [&::-webkit-details-marker]:hidden">
+                      <span>
+                        <span className="block font-semibold text-white">Feedback de la empresa</span>
+                        <span className="mt-1 block text-xs text-slate-400">Consulta los comentarios sobre tu desempeño.</span>
+                      </span>
+                      <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">{selectedCompanyFeedback.length} comentarios</span>
+                    </summary>
+                    <div className="border-t border-slate-700 p-4">
                     {laborLoading ? (
-                      <p className="mt-3 text-sm text-slate-400">Cargando comentarios...</p>
+                      <p className="text-sm text-slate-400">Cargando comentarios...</p>
                     ) : selectedCompanyFeedback.length === 0 ? (
-                      <p className="mt-3 rounded-xl border border-dashed border-slate-700 bg-slate-900/50 p-4 text-sm text-slate-400">La empresa aún no ha dejado comentarios de desempeño.</p>
+                      <p className="rounded-xl border border-dashed border-slate-700 bg-slate-900/50 p-4 text-sm text-slate-400">La empresa aún no ha dejado comentarios de desempeño.</p>
                     ) : (
-                      <ul className="mt-3 space-y-3">
+                      <ul className="space-y-3">
                         {selectedCompanyFeedback.map((feedback) => (
                           <li key={feedback.id} className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
                             <p className="whitespace-pre-wrap text-sm leading-6 text-slate-300">{feedback.comentario}</p>
@@ -715,10 +740,10 @@ export default function MiPracticaView() {
                         ))}
                       </ul>
                     )}
-                  </section>
+                    </div>
 
                   {selectedPractice.assignment.estado === 'finalizada' && (
-                    <div className="mt-6 border-t border-slate-700 pt-5">
+                    <div className="border-t border-slate-700 p-4">
                       <button
                         type="button"
                         onClick={() => { setCertificateRequested(true); setMessage('Solicitud de certificado registrada. La empresa recibirá el aviso cuando se habilite el envío de correo.') }}
@@ -730,6 +755,7 @@ export default function MiPracticaView() {
                       <p className="mt-2 text-xs text-slate-500">El envío automático al correo de recursos humanos aún no está configurado.</p>
                     </div>
                   )}
+                  </details>
                 </>
               )}
             </section>
@@ -786,14 +812,23 @@ export default function MiPracticaView() {
         )}
 
         {selectedPractice && (
-          <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-800 p-5 sm:p-6">
-            <h2 className="text-lg font-semibold text-white">Historial de entregas</h2>
+          <details className="mt-6 rounded-2xl border border-slate-700 bg-slate-800">
+            <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 p-5 sm:p-6 [&::-webkit-details-marker]:hidden">
+              <span>
+                <span className="block text-lg font-semibold text-white">Historial de entregas</span>
+                <span className="mt-1 block text-sm text-slate-400">
+                  {activeTab === 'academica' ? 'Bitácoras y archivos para tu instructor.' : 'Archivos que has compartido con la empresa.'}
+                </span>
+              </span>
+              <span className="rounded-full bg-slate-700 px-3 py-1 text-xs text-slate-300">{selectedTabEvidence.length} archivos</span>
+            </summary>
+            <div className="border-t border-slate-700 p-5 sm:p-6">
             {selectedTabEvidence.length === 0 ? (
-              <p className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-900/50 p-4 text-center text-sm text-slate-400">
+              <p className="rounded-xl border border-dashed border-slate-700 bg-slate-900/50 p-4 text-center text-sm text-slate-400">
                 {activeTab === 'academica' ? 'Aún no has enviado bitácoras al instructor.' : 'Aún no has enviado archivos a la empresa.'}
               </p>
             ) : (
-              <ul className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {selectedTabEvidence.map((evidence) => (
                   <li key={evidence.id} className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -807,7 +842,8 @@ export default function MiPracticaView() {
                 ))}
               </ul>
             )}
-          </section>
+            </div>
+          </details>
         )}
         {completingTask && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4" role="presentation">

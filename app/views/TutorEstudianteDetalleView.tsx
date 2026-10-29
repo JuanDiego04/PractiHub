@@ -557,7 +557,7 @@ export default function TutorEstudianteDetalleView({ assignmentId }: { assignmen
           </section>
         </div>
       )}
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto max-w-6xl">
         <Link href="/estudiantes" className="text-sm font-semibold text-emerald-300 transition hover:text-emerald-200">
           ← Volver a estudiantes
         </Link>
@@ -681,8 +681,8 @@ export default function TutorEstudianteDetalleView({ assignmentId }: { assignmen
           )}
         </section>
 
-        {(studentEvidence.length > 0 || studentEvidenceError) && (
-          <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-800 p-5 sm:p-6">
+        <div className="mt-6 grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+          <section className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800 p-5 sm:p-6">
             <h2 className="text-lg font-semibold text-white">Bitácoras del estudiante</h2>
             <p className="mt-1 text-sm text-slate-400">Archivos y avances compartidos por {student.nombre}.</p>
             {studentEvidenceError && <p role="alert" className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm leading-6 text-amber-200">{studentEvidenceError}</p>}
@@ -709,9 +709,8 @@ export default function TutorEstudianteDetalleView({ assignmentId }: { assignmen
               <p className="mt-4 text-sm text-slate-500">El estudiante aún no ha enviado bitácoras.</p>
             ) : null}
           </section>
-        )}
 
-        <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-800 p-5 sm:p-6">
+        <section className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800 p-5 sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-white">Historial de evaluaciones</h2>
@@ -862,6 +861,7 @@ export default function TutorEstudianteDetalleView({ assignmentId }: { assignmen
             </ol>
           )}
         </section>
+        </div>
       </div>
     </main>
   )

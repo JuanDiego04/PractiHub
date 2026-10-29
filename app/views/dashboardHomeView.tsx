@@ -7,8 +7,10 @@ import ModuleNavigation from '@/app/components/ModuleNavigation'
 import { supabase } from '@/lib/supabase'
 import { getAssignedStudents, getEvaluations } from '@/lib/tutorSeguimiento'
 import StudentOpportunitiesView from '@/app/views/StudentOpportunitiesView'
+import EmpresaDashboardView from '@/app/views/EmpresaDashboardView'
 
 interface Perfil {
+  id: string
   nombre: string
   rol: string
 }
@@ -179,7 +181,7 @@ export default function DashboardHomeView() {
       } else if (!data) {
         setError('Tu cuenta no tiene un perfil asociado. Contacta al administrador para recibir ayuda.')
       } else {
-        setPerfil(data)
+        setPerfil({ ...data, id: user.id })
         if (data.rol === 'estudiante') {
           try {
             const { data: assignments, error: assignmentError } = await supabase
@@ -289,15 +291,17 @@ export default function DashboardHomeView() {
     )
   }
 
+  if (perfil.rol === 'empresa') {
+    return <EmpresaDashboardView companyUserId={perfil.id} accountName={perfil.nombre} />
+  }
+
   if (perfil.rol === 'estudiante' && studentPracticeAvailable === false) {
     return (
-      <>
-        <ModuleNavigation />
-        {studentPracticeError && (
-          <p role="alert" className="mx-auto max-w-7xl px-4 pt-4 text-sm text-amber-300 sm:px-6 lg:px-10">{studentPracticeError}</p>
-        )}
-        <StudentOpportunitiesView studentName={perfil.nombre} />
-      </>
+      <StudentOpportunitiesView
+        studentName={perfil.nombre}
+        dashboardMode
+        practiceError={studentPracticeError}
+      />
     )
   }
 
