@@ -1,5 +1,15 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Configuración de CAPTCHA (Cloudflare Turnstile)
+
+Supabase Auth valida CAPTCHA en sus propios endpoints y admite Cloudflare Turnstile. Copia la **Site Key pública completa** (no la Secret Key) de un widget Turnstile de Cloudflare configurado para los dominios de la app (incluye `localhost` para desarrollo) y agrega la clave del sitio a `.env.local`:
+
+```env
+NEXT_PUBLIC_TURNSTILE_SITE_KEY=tu_clave_del_sitio
+```
+
+En el Dashboard de Supabase, abre **Authentication > Bot and Abuse Protection**, activa **Enable CAPTCHA protection**, elige **Cloudflare Turnstile** y pega la Secret Key de Cloudflare. Así Supabase valida el token enviado al iniciar sesión y registrarse, incluso cuando se llama directamente a su API. No publiques la Secret Key. Reinicia la aplicación después de configurar la Site Key. El error Turnstile `110200` significa que Cloudflare rechazó la Site Key configurada. Puedes tomar `.env.example` como referencia.
+
 ## Getting Started
 
 First, run the development server:

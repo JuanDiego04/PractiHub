@@ -1,8 +1,23 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import TurnstileWidget, { type TurnstileWidgetHandle } from '@/app/components/TurnstileWidget'
+
+const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? ''
+
+function getAuthErrorMessage(error: { message: string }) {
+  if (error.message.includes('invalid-input-secret')) {
+    return 'Supabase rechazó la clave secreta de Turnstile. En Cloudflare copia la Secret Key del mismo widget, actualízala en Supabase > Authentication > Bot and Abuse Protection y guarda los cambios.'
+  }
+
+  if (error.message.includes('captcha protection')) {
+    return `No se pudo validar Turnstile: ${error.message}`
+  }
+
+  return error.message
+}
 
 export default function LoginView() {
   const router = useRouter()
@@ -13,52 +28,67 @@ export default function LoginView() {
   const [rol, setRol] = useState('estudiante')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const [captchaToken, setCaptchaToken] = useState('')
+  const captchaRef = useRef<TurnstileWidgetHandle>(null)
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!captchaToken) {
+      setMessage('Completa la verificación de seguridad antes de continuar.')
+      return
+    }
+
     setLoading(true)
     setMessage('')
 
-    if (isLogin) {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
+    try {
+      if (isLogin) {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+          options: { captchaToken },
+        })
 
-      if (error) {
-        setMessage(`❌ Error al iniciar sesión: ${error.message}`)
-      } else {
-        setMessage('✅ ¡Inicio de sesión exitoso! Redirigiendo...')
-        setTimeout(() => router.push('/'), 1000)
-      }
-    } else {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-      })
-
-      if (error) {
-        setMessage(`❌ Error en el registro: ${error.message}`)
-      } else if (data.user) {
-        const { error: profileError } = await supabase.from('perfiles').insert([
-          {
-            id: data.user.id,
-            nombre,
-            email,
-            rol,
-          },
-        ])
-
-        if (profileError) {
-          setMessage(`⚠️ Usuario creado, pero hubo un detalle en el perfil: ${profileError.message}`)
+        if (error) {
+          setMessage(`❌ Error al iniciar sesión: ${getAuthErrorMessage(error)}`)
         } else {
-          setMessage('✅ ¡Cuenta creada exitosamente!')
-          setIsLogin(true)
+          setMessage('✅ ¡Inicio de sesión exitoso! Redirigiendo...')
+          setTimeout(() => router.push('/'), 1000)
+        }
+      } else {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { captchaToken },
+        })
+
+        if (error) {
+          setMessage(`❌ Error en el registro: ${getAuthErrorMessage(error)}`)
+        } else if (data.user) {
+          const { error: profileError } = await supabase.from('perfiles').insert([
+            {
+              id: data.user.id,
+              nombre,
+              email,
+              rol,
+            },
+          ])
+
+          if (profileError) {
+            setMessage(`⚠️ Usuario creado, pero hubo un detalle en el perfil: ${profileError.message}`)
+          } else {
+            setMessage('✅ ¡Cuenta creada exitosamente!')
+            setIsLogin(true)
+          }
         }
       }
+    } catch (error) {
+      console.error('Error al procesar la autenticación.', error)
+      setMessage('No fue posible completar la solicitud. Revisa tu conexión e inténtalo nuevamente.')
+    } finally {
+      captchaRef.current?.reset()
+      setLoading(false)
     }
-
-    setLoading(false)
   }
 
   return (
@@ -132,6 +162,12 @@ export default function LoginView() {
             />
           </div>
 
+          <TurnstileWidget
+            ref={captchaRef}
+            siteKey={turnstileSiteKey}
+            onTokenChange={setCaptchaToken}
+          />
+
           <button
             type="submit"
             disabled={loading}
@@ -148,6 +184,8 @@ export default function LoginView() {
             onClick={() => {
               setIsLogin(!isLogin)
               setMessage('')
+              setCaptchaToken('')
+              captchaRef.current?.reset()
             }}
             className="text-emerald-400 underline hover:text-emerald-300 font-medium ml-1"
           >
