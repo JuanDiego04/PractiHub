@@ -19,13 +19,13 @@ interface UserProfile {
   nombre_empresa: string | null
   email: string
   rol: string
-  telefono: string | null
+  telefono: string
   foto_perfil_path: string | null
 }
 
 const roleLabels: Record<string, string> = {
-  estudiante: 'Practicante',
-  tutor: 'Instructor',
+  aprendiz: 'Practicante',
+  instructor: 'Instructor',
   empresa: 'Empresa',
 }
 
@@ -136,7 +136,7 @@ export default function UserProfileView() {
       return
     }
     const normalizedPhone = normalizePhone(telefono)
-    if (normalizedPhone && normalizedPhone.length !== 10) {
+    if (normalizedPhone.length !== 10) {
       setError('El teléfono debe tener exactamente 10 dígitos.')
       return
     }
@@ -173,14 +173,14 @@ export default function UserProfileView() {
 
       const { error: updateError } = await supabase.rpc('update_own_profile', {
         p_nombre: nombre.trim(),
-        p_telefono: normalizedPhone || null,
+        p_telefono: normalizedPhone,
         p_foto_perfil_path: nextPath,
       })
       if (updateError) throw new Error(profileSchemaMessage(`No se pudo actualizar el perfil: ${updateError.message}`, updateError.code))
       profileSaved = true
 
       const previousPath = profile.foto_perfil_path
-      setProfile({ ...profile, nombre: nombre.trim(), telefono: normalizedPhone || null, foto_perfil_path: nextPath })
+      setProfile({ ...profile, nombre: nombre.trim(), telefono: normalizedPhone, foto_perfil_path: nextPath })
       setRemovePhoto(false)
       setPhoto(null)
       setPhotoInputVersion((current) => current + 1)
@@ -332,8 +332,8 @@ export default function UserProfileView() {
               <label className="text-sm font-medium text-slate-300">Nombre completo
                 <input required minLength={2} maxLength={100} value={nombre} onChange={(event) => setNombre(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none focus:border-emerald-400" />
               </label>
-              <label className="text-sm font-medium text-slate-300">Teléfono (opcional)
-                <input type="tel" inputMode="numeric" maxLength={10} pattern="[0-9]{10}" title="Ingresa exactamente 10 dígitos." value={telefono} onChange={(event) => setTelefono(normalizePhone(event.target.value))} placeholder="3000000000" className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none focus:border-emerald-400" />
+              <label className="text-sm font-medium text-slate-300">Teléfono
+                <input required type="tel" inputMode="numeric" maxLength={10} pattern="[0-9]{10}" title="Ingresa exactamente 10 dígitos." value={telefono} onChange={(event) => setTelefono(normalizePhone(event.target.value))} placeholder="3000000000" className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none focus:border-emerald-400" />
               </label>
             </div>
             <label className="block text-sm font-medium text-slate-300">Foto de perfil (JPG, PNG o WEBP; máximo 5 MB)

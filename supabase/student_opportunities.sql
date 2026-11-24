@@ -18,7 +18,8 @@ as $$
     select 1
     from public.perfiles
     where id = auth.uid()
-      and rol = 'estudiante'
+      and rol = 'aprendiz'
+      and estado_cuenta = 'activo'
   );
 $$;
 
@@ -35,6 +36,7 @@ as $$
     from public.perfiles
     where id = auth.uid()
       and rol = 'empresa'
+      and estado_cuenta = 'activo'
   );
 $$;
 
@@ -50,7 +52,8 @@ as $$
     select 1
     from public.perfiles
     where id = auth.uid()
-      and rol = 'tutor'
+      and rol = 'instructor'
+      and estado_cuenta = 'activo'
   );
 $$;
 
@@ -66,7 +69,8 @@ as $$
     select 1
     from public.perfiles
     where id = $1
-      and rol = 'tutor'
+      and rol = 'instructor'
+      and estado_cuenta = 'activo'
   );
 $$;
 

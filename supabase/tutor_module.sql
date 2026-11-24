@@ -12,7 +12,8 @@ as $$
     select 1
     from public.perfiles
     where id = auth.uid()
-      and rol = 'tutor'
+      and rol = 'instructor'
+      and estado_cuenta = 'activo'
   );
 $$;
 
@@ -27,7 +28,8 @@ as $$
     select 1
     from public.perfiles
     where id = profile_id
-      and rol = 'estudiante'
+      and rol = 'aprendiz'
+      and estado_cuenta = 'activo'
   );
 $$;
 
@@ -182,7 +184,7 @@ begin
     into v_estudiante_id, v_nombre
   from public.perfiles as perfil
   where lower(perfil.email) = lower(trim(p_email))
-    and perfil.rol = 'estudiante';
+    and perfil.rol = 'aprendiz';
 
   if not found then
     raise exception 'No encontramos un perfil de estudiante con ese correo.';

@@ -43,7 +43,7 @@ drop policy if exists perfiles_company_select_linked_students on public.perfiles
 create policy perfiles_company_select_linked_students
   on public.perfiles for select to authenticated
   using (
-    rol = 'estudiante'
+    rol = 'aprendiz'
     and public.is_current_user_company()
     and exists (
       select 1
@@ -100,7 +100,7 @@ begin
   select profile.nombre into v_student_name
   from public.perfiles as profile
   where profile.id = v_application.estudiante_id
-    and profile.rol = 'estudiante';
+    and profile.rol = 'aprendiz';
 
   if v_company_name is null or v_student_name is null then
     raise exception 'No se encontró el perfil de la empresa o del estudiante.';

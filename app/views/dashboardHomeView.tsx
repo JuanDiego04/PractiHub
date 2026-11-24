@@ -23,7 +23,7 @@ interface Metric {
 }
 
 const dashboardByRole: Record<string, { subtitle: string; metrics: Metric[] }> = {
-  estudiante: {
+  aprendiz: {
     subtitle: 'Seguimiento académico con tu instructor',
     metrics: [
       { label: 'Prácticas en curso', value: '—', detail: 'Cargando tus asignaciones', accent: 'emerald' },
@@ -39,7 +39,7 @@ const dashboardByRole: Record<string, { subtitle: string; metrics: Metric[] }> =
       { label: 'Practicantes contratados', value: '—', detail: 'Se mostrará cuando se conecten tus contrataciones', accent: 'violet' },
     ],
   },
-  tutor: {
+  instructor: {
     subtitle: 'Panel de seguimiento académico',
     metrics: [
       { label: 'Estudiantes asignados', value: '—', detail: 'Cargando tus seguimientos', accent: 'blue' },
@@ -182,7 +182,7 @@ export default function DashboardHomeView() {
         setError('Tu cuenta no tiene un perfil asociado. Contacta al administrador para recibir ayuda.')
       } else {
         setPerfil({ ...data, id: user.id })
-        if (data.rol === 'estudiante') {
+        if (data.rol === 'aprendiz') {
           try {
             const { data: assignments, error: assignmentError } = await supabase
               .from('tutor_estudiantes')
@@ -216,7 +216,7 @@ export default function DashboardHomeView() {
               setStudentPracticeError(`${detail}. Ejecuta supabase/student_followup.sql después de tutor_module.sql en Supabase.`)
             }
           }
-        } else if (data.rol === 'tutor') {
+        } else if (data.rol === 'instructor') {
           try {
             const assignedStudents = await getAssignedStudents(user.id)
             const evaluations = await getEvaluations(assignedStudents.map((student) => student.id))
@@ -295,7 +295,7 @@ export default function DashboardHomeView() {
     return <EmpresaDashboardView companyUserId={perfil.id} accountName={perfil.nombre} />
   }
 
-  if (perfil.rol === 'estudiante' && studentPracticeAvailable === false) {
+  if (perfil.rol === 'aprendiz' && studentPracticeAvailable === false) {
     return (
       <StudentOpportunitiesView
         studentName={perfil.nombre}
@@ -305,13 +305,13 @@ export default function DashboardHomeView() {
     )
   }
 
-  const metrics = perfil.rol === 'tutor' && tutorMetricValues
+  const metrics = perfil.rol === 'instructor' && tutorMetricValues
     ? dashboard.metrics.map((metric, index) => ({
       ...metric,
       value: String(index === 0 ? tutorMetricValues.students : tutorMetricValues.evaluations),
       detail: index === 0 ? 'Prácticas asignadas por ti' : 'Evaluaciones guardadas por ti',
     }))
-    : perfil.rol === 'estudiante' && studentMetricValues
+    : perfil.rol === 'aprendiz' && studentMetricValues
       ? dashboard.metrics.map((metric, index) => ({
         ...metric,
         value: String(index === 0 ? studentMetricValues.activePractices : index === 1 ? studentMetricValues.evidence : studentMetricValues.evaluations),
@@ -356,10 +356,10 @@ export default function DashboardHomeView() {
               <MetricCard key={metric.label} metric={metric} index={index} />
             ))}
           </div>
-          {tutorMetricError && perfil.rol === 'tutor' && (
+          {tutorMetricError && perfil.rol === 'instructor' && (
             <p role="alert" className="mt-4 text-sm text-rose-300">{tutorMetricError}</p>
           )}
-          {studentPracticeError && perfil.rol === 'estudiante' && (
+          {studentPracticeError && perfil.rol === 'aprendiz' && (
             <p role="alert" className="mt-4 text-sm text-rose-300">{studentPracticeError}</p>
           )}
         </section>
@@ -370,7 +370,7 @@ export default function DashboardHomeView() {
             <p className="mt-1 text-sm text-slate-400">Continúa con lo que necesitas hacer hoy.</p>
           </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {perfil.rol === 'estudiante' && (
+            {perfil.rol === 'aprendiz' && (
               studentPracticeAvailable === true ? (
                 <QuickAction
                   label="Abrir mi seguimiento"
@@ -400,7 +400,7 @@ export default function DashboardHomeView() {
                 <QuickAction label="Gestionar practicantes" detail="Asigna tareas y revisa novedades" href="/mis-practicantes" />
               </>
             )}
-            {perfil.rol === 'tutor' && (
+            {perfil.rol === 'instructor' && (
               <>
                 <QuickAction
                   label="Ver estudiantes asignados"

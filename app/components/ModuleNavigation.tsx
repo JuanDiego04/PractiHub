@@ -11,12 +11,12 @@ interface ModuleLink {
 }
 
 const linksByRole: Record<string, ModuleLink[]> = {
-  estudiante: [
+  aprendiz: [
     { label: 'Buscar ofertas', href: '/buscar-practicas' },
     { label: 'Mi práctica', href: '/mi-practica' },
     { label: 'Mi perfil', href: '/perfil' },
   ],
-  tutor: [
+  instructor: [
     { label: 'Estudiantes asignados', href: '/estudiantes' },
     { label: 'Evaluaciones', href: '/evaluaciones' },
     { label: 'Mi perfil', href: '/perfil' },
@@ -59,7 +59,7 @@ export default function ModuleNavigation() {
       if (cancelled) return
       if (profileError || !data) return
       setRole(data.rol)
-      if (data.rol === 'estudiante') {
+      if (data.rol === 'aprendiz') {
         const { data: assignments, error: assignmentsError } = await supabase
           .from('tutor_estudiantes')
           .select('id')
@@ -140,7 +140,7 @@ export default function ModuleNavigation() {
           ))}
         </div>
       </div>
-      {studentPracticeError && role === 'estudiante' && (
+      {studentPracticeError && role === 'aprendiz' && (
         <p role="alert" className="mx-auto max-w-7xl px-4 pb-3 text-xs text-amber-300 sm:px-6 lg:px-10">{studentPracticeError}</p>
       )}
     </nav>

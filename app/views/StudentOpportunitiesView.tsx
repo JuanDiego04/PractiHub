@@ -124,7 +124,7 @@ export default function StudentOpportunitiesView({
         .eq('id', user.id)
         .maybeSingle()
       if (profileError) throw new Error(`No se pudo verificar tu perfil: ${profileError.message}`)
-      if (profile?.rol !== 'estudiante') throw new Error('Esta sección está disponible para cuentas de aprendiz.')
+      if (profile?.rol !== 'aprendiz') throw new Error('Esta sección está disponible para cuentas de aprendiz.')
 
       const { data: assignments, error: assignmentError } = await supabase
         .from('tutor_estudiantes')

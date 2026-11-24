@@ -162,7 +162,7 @@ export default function MiPracticaView() {
 
       const { data: profile, error: profileError } = await supabase.from('perfiles').select('rol').eq('id', user.id).maybeSingle()
       if (profileError) throw new Error(`No se pudo verificar tu perfil: ${profileError.message}`)
-      if (profile?.rol !== 'estudiante') throw new Error('Esta sección está disponible para cuentas de estudiante.')
+      if (profile?.rol !== 'aprendiz') throw new Error('Esta sección está disponible para cuentas de aprendiz.')
 
       const { data: assignmentRows, error: assignmentError } = await supabase
         .from('tutor_estudiantes')

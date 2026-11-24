@@ -55,7 +55,8 @@ as $$
     select 1
     from public.perfiles
     where id = auth.uid()
-      and rol = 'estudiante'
+      and rol = 'aprendiz'
+      and estado_cuenta = 'activo'
   );
 $$;
 
@@ -74,6 +75,7 @@ as $$
     from public.perfiles
     where id = auth.uid()
       and rol = 'empresa'
+      and estado_cuenta = 'activo'
   );
 $$;
 
@@ -88,7 +90,8 @@ as $$
     select 1
     from public.perfiles
     where id = profile_id
-      and rol = 'tutor'
+      and rol = 'instructor'
+      and estado_cuenta = 'activo'
   );
 $$;
 
@@ -202,7 +205,7 @@ drop policy if exists perfiles_company_select_applicants on public.perfiles;
 create policy perfiles_company_select_applicants
   on public.perfiles for select to authenticated
   using (
-    rol = 'estudiante'
+    rol = 'aprendiz'
     and exists (
       select 1
       from public.postulaciones
@@ -226,7 +229,7 @@ drop policy if exists perfiles_student_select_linked_tutor on public.perfiles;
 create policy perfiles_student_select_linked_tutor
   on public.perfiles for select to authenticated
   using (
-    rol = 'tutor'
+    rol = 'instructor'
     and public.is_current_user_student()
     and exists (
       select 1
@@ -308,7 +311,7 @@ begin
     into v_estudiante_id, v_nombre
   from public.perfiles as perfil
   where lower(perfil.email) = lower(trim(p_email))
-    and perfil.rol = 'estudiante';
+    and perfil.rol = 'aprendiz';
 
   if not found then
     raise exception 'No encontramos un perfil de estudiante con ese correo.';
@@ -684,6 +687,7 @@ create policy student_evidence_upload_own
   with check (
     bucket_id = 'evidencias_estudiantes'
     and (storage.foldername(name))[1] = auth.uid()::text
+    and public.is_current_user_student()
     and exists (
       select 1 from public.tutor_estudiantes
       where id::text = (storage.foldername(name))[2]
@@ -702,9 +706,9 @@ create policy student_evidence_read_related
       from public.evidencias_estudiantes evidence
       where evidence.archivo_path = name
         and (
-          evidence.estudiante_id = auth.uid()
-          or (evidence.tipo = 'academica' and evidence.tutor_id = auth.uid())
-          or (evidence.tipo = 'empresa' and evidence.empresa_id = auth.uid())
+          (evidence.estudiante_id = auth.uid() and public.is_current_user_student())
+          or (evidence.tipo = 'academica' and evidence.tutor_id = auth.uid() and public.is_current_user_tutor())
+          or (evidence.tipo = 'empresa' and evidence.empresa_id = auth.uid() and public.is_current_user_company())
         )
     )
   );
@@ -715,6 +719,7 @@ create policy student_evidence_delete_own
   using (
     bucket_id = 'evidencias_estudiantes'
     and (storage.foldername(name))[1] = auth.uid()::text
+    and public.is_current_user_student()
   );
 
 drop policy if exists student_read_tutor_evaluation_evidence on storage.objects;

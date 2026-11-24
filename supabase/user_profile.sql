@@ -1,5 +1,4 @@
--- Ejecuta este archivo en Supabase SQL Editor después de tutor_module.sql
--- y student_module.sql.
+-- Ejecuta este archivo en Supabase SQL Editor después de governed_accounts.sql.
 
 alter table public.perfiles
   add column if not exists telefono text,
@@ -29,7 +28,7 @@ begin
     raise exception 'El nombre debe tener entre 2 y 100 caracteres.';
   end if;
 
-  if nullif(trim(p_telefono), '') is not null and trim(p_telefono) !~ '^[0-9]{10}$' then
+  if nullif(trim(p_telefono), '') is null or trim(p_telefono) !~ '^[0-9]{10}$' then
     raise exception 'El teléfono debe tener exactamente 10 dígitos.';
   end if;
 
@@ -41,7 +40,7 @@ begin
 
   update public.perfiles
   set nombre = trim(p_nombre),
-      telefono = nullif(trim(p_telefono), ''),
+      telefono = trim(p_telefono),
       foto_perfil_path = p_foto_perfil_path
   where id = auth.uid();
 

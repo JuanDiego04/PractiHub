@@ -141,7 +141,7 @@ begin
   select profile.nombre into v_student_name
   from public.perfiles as profile
   where profile.id = v_application.estudiante_id
-    and profile.rol = 'estudiante';
+    and profile.rol = 'aprendiz';
 
   if v_company_name is null then
     raise exception 'Registra primero el nombre de la empresa desde Mi perfil.';
@@ -251,7 +251,7 @@ begin
     into v_estudiante_id, v_nombre
   from public.perfiles as profile
   where lower(profile.email) = lower(trim(p_email))
-    and profile.rol = 'estudiante';
+    and profile.rol = 'aprendiz';
 
   if not found then
     raise exception 'No encontramos un perfil de estudiante con ese correo.';

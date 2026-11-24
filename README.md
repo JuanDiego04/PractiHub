@@ -21,11 +21,11 @@ Elaborado bajo los lineamientos metodológicos de **ISO/IEC/IEEE 29148:2018**, *
 
 ## Arquitectura y Stack Tecnológico
 
-**PractiHub** implementa una arquitectura cliente-servidor desacoplada en la nube (*Cloud-Native / BaaS*), garantizando aislamiento multi-inquilino (*multi-tenancy*) mediante políticas *Row Level Security* (RLS) en PostgreSQL y protección de rutas en servidor mediante Next.js Middleware.
+**PractiHub** implementa una arquitectura cliente-servidor desacoplada en la nube (*Cloud-Native / BaaS*), garantizando aislamiento multi-inquilino (*multi-tenancy*) mediante políticas *Row Level Security* (RLS) en PostgreSQL y control de sesión en servidor mediante `proxy.ts`.
 
 | Capa | Tecnología | Función en el Sistema |
 | :--- | :--- | :--- |
-| **Frontend & SSR** | Next.js (App Router), React, TypeScript | Renderizado híbrido (SSR/CSR), tipado estático estricto y enrutamiento protegido (`middleware.ts`). |
+| **Frontend & SSR** | Next.js (App Router), React, TypeScript | Renderizado híbrido (SSR/CSR), tipado estático estricto y control de sesión con `proxy.ts` y RLS. |
 | **Estilos & UI/UX** | Tailwind CSS, `next/font` (Geist) | Diseño responsivo *Mobile-First* (`360px` a `1920px`) con cumplimiento de contraste WCAG 2.1 AA. |
 | **Base de Datos** | Supabase PostgreSQL | Persistencia relacional con llaves primarias `UUID`, integridad referencial ACID, índices B-Tree y RLS. |
 | **Autenticación** | Supabase Auth (GoTrue) + `@supabase/ssr` | Gestión de sesiones JWT en cookies seguras `HttpOnly` y cifrado `bcrypt` (*cost factor* $\ge 10$). |
@@ -42,16 +42,15 @@ Elaborado bajo los lineamientos metodológicos de **ISO/IEC/IEEE 29148:2018**, *
 ```text
 practihub/
 ├── app/                          # Rutas, páginas y layouts (Next.js App Router)
-│   ├── login/                    # Inicio de sesión con validación Cloudflare Turnstile
-│   ├── register/                 # Registro por rol (Aprendiz / Empresa) con consentimiento legal
-│   ├── dashboard/                # Paneles principales e indicadores por rol
-│   ├── mis-ofertas/              # Creación, edición y cierre de convocatorias (Empresa)
-│   ├── postulaciones/            # Evaluación de postulantes, estado 'aprobada' y entrevistas (Empresa)
-│   ├── mis-practicantes/         # Registro de práctica, tareas laborales y novedades (Empresa)
-│   └── empresa/seguimiento/      # Ruta alternativa heredada de seguimiento empresarial
-├── components/                   # Componentes UI reutilizables, formularios y modales
+│   ├── (dashboard)/              # Rutas operativas y layout de módulos por rol
+│   ├── admin/                    # Acceso y panel administrativo
+│   ├── registro/                 # Registro dinámico por tipo de cuenta
+│   ├── cuenta-pendiente/         # Estado de solicitudes verificadas por un administrador
+│   ├── views/                    # Lógica y UI de las páginas
+│   └── components/               # Componentes UI reutilizables
 ├── lib/                          # Clientes Supabase (browser/server), utilidades y validaciones
 ├── supabase/                     # Scripts DDL y migraciones SQL modulares e idempotentes
+│   ├── governed_accounts.sql
 │   ├── tutor_module.sql
 │   ├── student_followup.sql
 │   ├── user_profile.sql
@@ -60,7 +59,7 @@ practihub/
 │   ├── student_opportunities.sql
 │   ├── company_registry.sql
 │   └── company_interviews.sql
-├── middleware.ts                 # Intercepción en servidor para validación de sesión JWT y roles
+├── proxy.ts                      # Actualiza cookies de Auth y bloquea cuentas no activas
 ├── .env.example                  # Plantilla de variables de entorno públicas requeridas
 └── .gitignore                    # Exclusión de .env.local, node_modules/ y .next/
 ```
@@ -69,7 +68,7 @@ practihub/
 
 ## Requisitos Previos e Instalación Local
 
-* **Node.js** v18.18 o superior (recomendado v20 LTS).
+* **Node.js** v20.9 o superior (requerido por Next.js 16).
 * **Gestor de paquetes:** `npm`, `yarn`, `pnpm` o `bun`.
 * **Cuenta activa en Supabase** (proyecto PostgreSQL provisionado) y **Cloudflare** (widget Turnstile).
 
@@ -88,12 +87,14 @@ npm install
 Toma `.env.example` como referencia y crea un archivo `.env.local` en la raíz del proyecto:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=[https://tu-proyecto.supabase.co](https://tu-proyecto.supabase.co)
+NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_supabase_anon_key_publica
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
 NEXT_PUBLIC_TURNSTILE_SITE_KEY=tu_cloudflare_turnstile_site_key_publica
+SUPABASE_SERVICE_ROLE_KEY=tu_supabase_service_role_key_solo_servidor
 ```
 
-> **Importante:** Nunca expongas ni subas al repositorio las claves privadas (`SUPABASE_SERVICE_ROLE_KEY` o la *Secret Key* de Cloudflare Turnstile). El archivo `.env.local` está excluido automáticamente en `.gitignore`.
+> **Importante:** Nunca expongas ni subas al repositorio `SUPABASE_SERVICE_ROLE_KEY` ni la *Secret Key* de Cloudflare Turnstile. `SUPABASE_SERVICE_ROLE_KEY` se usa solo en el servidor para invitar administradores y gestionar cuentas desde el panel administrativo. El archivo `.env.local` está excluido automáticamente en `.gitignore`.
 
 3. **Iniciar el servidor de desarrollo:**
 
@@ -119,7 +120,29 @@ Supabase Auth valida los tokens CAPTCHA de forma nativa en sus propios endpoints
 
 > **Diagnóstico de error `110200`:** Si el widget muestra el código de error Turnstile `110200`, significa que Cloudflare rechazó la *Site Key* configurada (verifica que no esté truncada y que el dominio/puerto actual esté permitido en Cloudflare).
 
-### 2. Buckets Privados y Gestión Documental (Supabase Storage)
+### 2. Invitaciones y recuperación de contraseña
+
+1. Define `NEXT_PUBLIC_SITE_URL` como el origen público de la aplicación (por ejemplo, `http://localhost:3000` en desarrollo y `https://tu-dominio.com` en producción).
+2. En **Supabase > Authentication > URL Configuration**, define **Site URL** con el mismo origen de `NEXT_PUBLIC_SITE_URL` y añade `http://localhost:3000/auth/confirm` y `https://tu-dominio.com/auth/confirm` a **Redirect URLs**.
+3. En **Authentication > Email Templates**, configura la plantilla **Invite user** para enlazar el token de invitación con la aplicación:
+
+```html
+<h2>Acepta tu invitación a PractiHub</h2>
+<p>Abre el siguiente enlace para crear la contraseña de tu cuenta:</p>
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=invite">Aceptar invitación y crear contraseña</a>
+```
+
+4. Configura la plantilla **Reset password** de la misma manera, usando el tipo `recovery`:
+
+```html
+<h2>Restablece tu contraseña de PractiHub</h2>
+<p>Si solicitaste cambiar tu contraseña, usa este enlace seguro:</p>
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=recovery">Crear nueva contraseña</a>
+```
+
+Al abrir cualquiera de esos enlaces, PractiHub verifica el token y permite guardar la nueva contraseña en `/actualizar-contrasena`. Para una invitación aceptada previamente, también se puede solicitar un enlace desde **¿Olvidaste tu contraseña?** en `/login` o `/admin/login`. Si Supabase tiene CAPTCHA activado, Turnstile debe estar configurado correctamente para que pueda enviarse el correo.
+
+### 3. Buckets Privados y Gestión Documental (Supabase Storage)
 
 * **Buckets requeridos:** Configura los buckets de almacenamiento de **Hojas de Vida (CV)** y **Bitácoras** en modo **Private** (nunca públicos).
 * **Validación de archivos:** Solo se admiten archivos con tipo MIME `application/pdf` y peso máximo de **5 MB por archivo**, validados tanto en el frontend como en las reglas del bucket.
@@ -136,24 +159,28 @@ Las migraciones ubicadas en `supabase/` deben ejecutarse **completas en una sola
 
 | Orden | Archivo SQL | Descripción técnica y tablas/columnas afectadas |
 | :---: | :--- | :--- |
-| **1** | `supabase/tutor_module.sql` | Crea las tablas base de asignaciones (`tutor_estudiantes`) y evaluaciones institucionales. |
-| **2** | `supabase/student_followup.sql` | Crea `bitacoras`, `seguimientos`, `entregables_empresa`, `novedades`, `feedback_empresa` y políticas RLS de acceso privado. |
-| **3** | `supabase/user_profile.sql` | Habilita actualización de perfil, columnas `telefono` y `foto_perfil_path`, cambio de correo y contraseña. |
-| **4** | `supabase/student_module.sql` | Crea `postulaciones`, evidencias y columnas relacionales (`empresa_id`, `tutor_id`, `updated_at`), poblando `empresa_id` desde cada oferta. |
-| **5** | `supabase/empresa_module.sql` | Configura `ofertas` (`empresa_id` FK a `perfiles.id`, `titulo`, `descripcion`, `requisitos`, `estado`, `created_at`) y RLS por organización. |
-| **6** | `supabase/student_opportunities.sql` | Añade descripción del perfil, CV privado por postulación, lectura de ofertas activas y políticas RLS sin recursión. |
-| **7** | `supabase/company_registry.sql` | Habilita el registro del nombre comercial empresarial y permite `tutor_estudiantes.tutor_id` nulo (`NULL`) para iniciar prácticas antes de asignar instructor. |
-| **8** | `supabase/company_interviews.sql` | Crea la agenda privada de entrevistas (`fecha`, `modalidad`, `enlace` o `lugar` e `indicaciones`) accesible solo por la empresa y el aprendiz aceptado. |
+| **1** | `supabase/governed_accounts.sql` | Migra `estudiante`/`tutor` a `aprendiz`/`instructor`, agrega estados y datos de verificación, crea perfiles de Auth y habilita permisos RLS administrativos. |
+| **2** | `supabase/tutor_module.sql` | Crea las tablas base de asignaciones (`tutor_estudiantes`) y evaluaciones institucionales. |
+| **3** | `supabase/student_followup.sql` | Crea `bitacoras`, `seguimientos`, `entregables_empresa`, `novedades`, `feedback_empresa` y políticas RLS de acceso privado. |
+| **4** | `supabase/user_profile.sql` | Habilita actualización de perfil, columnas `telefono` y `foto_perfil_path`, cambio de correo y contraseña. |
+| **5** | `supabase/student_module.sql` | Crea `postulaciones`, evidencias y columnas relacionales (`empresa_id`, `tutor_id`, `updated_at`), poblando `empresa_id` desde cada oferta. |
+| **6** | `supabase/empresa_module.sql` | Configura `ofertas` (`empresa_id` FK a `perfiles.id`, `titulo`, `descripcion`, `requisitos`, `estado`, `created_at`) y RLS por organización. |
+| **7** | `supabase/student_opportunities.sql` | Añade descripción del perfil, CV privado por postulación, lectura de ofertas activas y políticas RLS sin recursión. |
+| **8** | `supabase/company_registry.sql` | Habilita el registro del nombre comercial empresarial y permite `tutor_estudiantes.tutor_id` nulo (`NULL`) para iniciar prácticas antes de asignar instructor. |
+| **9** | `supabase/company_interviews.sql` | Crea la agenda privada de entrevistas (`fecha`, `modalidad`, `enlace` o `lugar` e `indicaciones`) accesible solo por la empresa y el aprendiz aceptado. |
 
-> **Instalación modular (solo seguimiento sin portal de ofertas):** Si únicamente deseas habilitar el seguimiento académico y laboral entre instructor, practicante y empresa, ejecuta únicamente los archivos **1, 2 y 3** (`tutor_module.sql`, `student_followup.sql` y `user_profile.sql`).
+> **Instalación modular (solo seguimiento sin portal de ofertas):** Ejecuta primero `governed_accounts.sql` y después `tutor_module.sql`, `student_followup.sql` y `user_profile.sql`.
 >
 > **Idempotencia:** Los scripts `student_opportunities.sql`, `company_registry.sql` y `company_interviews.sql` son **idempotentes**; pueden volver a ejecutarse completos cuando se actualicen para aplicar correcciones en las políticas RLS.
+
+> **Registro y administración:** La primera migración presupone que ya existe la tabla base `public.perfiles`. El primer administrador se habilita mediante una promoción controlada desde el SQL Editor de un perfil existente. Después, los administradores activos pueden invitar a otros administradores desde el panel; el registro público no ofrece ese rol. Los aprendices se crean activos y acceden de inmediato a sus módulos; las solicitudes de instructor y empresa permanecen pendientes hasta ser aprobadas y recibir el rol definitivo. Las rutas por rol y las funciones RLS también verifican que la cuenta esté activa. En instalaciones que ya tenían las migraciones de módulos, vuelve a ejecutarlas en el orden de la tabla después de `governed_accounts.sql` para actualizar sus políticas y funciones con los nuevos roles y estados.
 
 ### 2. Verificación Post-Migración y Recarga de Caché PostgREST
 
 1. **Verificación de `student_followup.sql`:** Confirma en la tabla de resultados final que `tabla_bitacoras`, `tabla_seguimientos`, `tabla_entregables_empresa`, `tabla_novedades` y `tabla_feedback_empresa` muestren el nombre de cada tabla. Si alguno retorna `NULL`, vuelve a ejecutar el script completo y revisa el primer error reportado.
 2. **Verificación de `user_profile.sql`:** Confirma que la salida retorne las columnas `telefono` y `foto_perfil_path`.
-3. **Recarga del esquema de la API (PostgREST):** Si las tablas existen en PostgreSQL pero la aplicación reporta que no se encuentran en el *schema cache*, ejecuta:
+3. **Verificación de `governed_accounts.sql`:** Confirma que `perfiles` tenga `estado_cuenta`, `telefono`, `documento_identidad`, `centro_formacion`, `nombre_empresa` y `rol_solicitado`. Los roles previos `estudiante` y `tutor` se migran a `aprendiz` e `instructor`.
+4. **Recarga del esquema de la API (PostgREST):** Si las tablas existen en PostgreSQL pero la aplicación reporta que no se encuentran en el *schema cache*, ejecuta:
 
 ```sql
 NOTIFY pgrst, 'reload schema';
@@ -184,8 +211,8 @@ NOTIFY pgrst, 'reload schema';
 ## Despliegue en Producción y Continuidad (Vercel)
 
 1. Importa el repositorio de GitHub en [Vercel](https://vercel.com/new) apuntando a la rama `main`.
-2. Configura en **Project Settings > Environment Variables** las variables `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` y `NEXT_PUBLIC_TURNSTILE_SITE_KEY`.
-3. Añade la URL asignada por Vercel (`*.vercel.app` o dominio personalizado) tanto en **Cloudflare Turnstile (Allowed Domains)** como en **Supabase > Authentication > URL Configuration (Site URL y Redirect URLs)**.
+2. Configura en **Project Settings > Environment Variables** las variables `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY` y `SUPABASE_SERVICE_ROLE_KEY`. La clave de servicio debe mantenerse solo en el servidor (sin prefijo `NEXT_PUBLIC_`).
+3. Añade la URL asignada por Vercel (`*.vercel.app` o dominio personalizado) tanto en **Cloudflare Turnstile (Allowed Domains)** como en **Supabase > Authentication > URL Configuration (Site URL y Redirect URLs)**. Usa el dominio definitivo en `NEXT_PUBLIC_SITE_URL` y autoriza su ruta `/auth/confirm`.
 4. **Continuidad operativa:** Respaldos automáticos diarios de PostgreSQL en Supabase Cloud ($\text{RPO} < 24\text{ horas}$) complementados con migraciones versionadas en GitHub y respaldos SQL por hito ($\text{RTO} < 2\text{ horas}$).
 
 ---
