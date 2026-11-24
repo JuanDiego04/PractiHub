@@ -17,6 +17,7 @@ const linksByRole: Record<string, ModuleLink[]> = {
     { label: 'Mi perfil', href: '/perfil' },
   ],
   instructor: [
+    { label: 'Conexiones con empresas', href: '/conexiones' },
     { label: 'Estudiantes asignados', href: '/estudiantes' },
     { label: 'Evaluaciones', href: '/evaluaciones' },
     { label: 'Mi perfil', href: '/perfil' },
@@ -24,6 +25,7 @@ const linksByRole: Record<string, ModuleLink[]> = {
   empresa: [
     { label: 'Mis ofertas', href: '/mis-ofertas' },
     { label: 'Postulaciones', href: '/postulaciones' },
+    { label: 'Conexiones con instructores', href: '/conexiones' },
     { label: 'Mis practicantes', href: '/mis-practicantes' },
     { label: 'Mi perfil', href: '/perfil' },
   ],

@@ -58,7 +58,8 @@ practihub/
 │   ├── empresa_module.sql
 │   ├── student_opportunities.sql
 │   ├── company_registry.sql
-│   └── company_interviews.sql
+│   ├── company_interviews.sql
+│   └── instructor_company_connections.sql
 ├── proxy.ts                      # Actualiza cookies de Auth y bloquea cuentas no activas
 ├── .env.example                  # Plantilla de variables de entorno públicas requeridas
 └── .gitignore                    # Exclusión de .env.local, node_modules/ y .next/
@@ -145,7 +146,8 @@ Al abrir cualquiera de esos enlaces, PractiHub verifica el token y permite guard
 ### 3. Buckets Privados y Gestión Documental (Supabase Storage)
 
 * **Buckets requeridos:** Configura los buckets de almacenamiento de **Hojas de Vida (CV)** y **Bitácoras** en modo **Private** (nunca públicos).
-* **Validación de archivos:** Solo se admiten archivos con tipo MIME `application/pdf` y peso máximo de **5 MB por archivo**, validados tanto en el frontend como en las reglas del bucket.
+* **Validación de archivos:** Para hojas de vida y bitácoras solo se admiten archivos `application/pdf` de hasta **5 MB**, validados tanto en el frontend como en las reglas del bucket.
+* **Documentos de conexiones:** La migración `instructor_company_connections.sql` crea el bucket privado `documentos_conexiones`; permite PDF, Word, Excel, PowerPoint, CSV, TXT, JPG y PNG hasta **10 MB**, accesibles únicamente por los participantes de una conexión aceptada.
 * **Nomenclatura física de bitácoras:** Los archivos cargados siguen el patrón `{id_aprendiz}/bitacora_{quincena_num}_{timestamp}.pdf` para evitar colisiones y preservar historial de versiones.
 * **Acceso temporal controlado:** La visualización y descarga de PDFs se realiza exclusivamente mediante `createSignedUrl(path, 3600)`, generando enlaces dinámicos con expiración estricta de **60 minutos (3600 segundos)** autorizados por políticas RLS.
 
@@ -168,10 +170,11 @@ Las migraciones ubicadas en `supabase/` deben ejecutarse **completas en una sola
 | **7** | `supabase/student_opportunities.sql` | Añade descripción del perfil, CV privado por postulación, lectura de ofertas activas y políticas RLS sin recursión. |
 | **8** | `supabase/company_registry.sql` | Habilita el registro del nombre comercial empresarial y permite `tutor_estudiantes.tutor_id` nulo (`NULL`) para iniciar prácticas antes de asignar instructor. |
 | **9** | `supabase/company_interviews.sql` | Crea la agenda privada de entrevistas (`fecha`, `modalidad`, `enlace` o `lugar` e `indicaciones`) accesible solo por la empresa y el aprendiz aceptado. |
+| **10** | `supabase/instructor_company_connections.sql` | Habilita conexiones entre instructores y empresas, comentarios, documentos privados y la vinculación compartida de aprendices. |
 
 > **Instalación modular (solo seguimiento sin portal de ofertas):** Ejecuta primero `governed_accounts.sql` y después `tutor_module.sql`, `student_followup.sql` y `user_profile.sql`.
 >
-> **Idempotencia:** Los scripts `student_opportunities.sql`, `company_registry.sql` y `company_interviews.sql` son **idempotentes**; pueden volver a ejecutarse completos cuando se actualicen para aplicar correcciones en las políticas RLS.
+> **Idempotencia:** Los scripts `student_opportunities.sql`, `company_registry.sql`, `company_interviews.sql` e `instructor_company_connections.sql` son **idempotentes**; pueden volver a ejecutarse completos cuando se actualicen para aplicar correcciones en las políticas RLS.
 
 > **Registro y administración:** La primera migración presupone que ya existe la tabla base `public.perfiles`. El primer administrador se habilita mediante una promoción controlada desde el SQL Editor de un perfil existente. Después, los administradores activos pueden invitar a otros administradores desde el panel; el registro público no ofrece ese rol. Los aprendices se crean activos y acceden de inmediato a sus módulos; las solicitudes de instructor y empresa permanecen pendientes hasta ser aprobadas y recibir el rol definitivo. Las rutas por rol y las funciones RLS también verifican que la cuenta esté activa. En instalaciones que ya tenían las migraciones de módulos, vuelve a ejecutarlas en el orden de la tabla después de `governed_accounts.sql` para actualizar sus políticas y funciones con los nuevos roles y estados.
 

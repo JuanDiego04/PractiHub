@@ -189,7 +189,7 @@ export default function EmpresaDashboardView({
 
   return (
     <div className="min-h-screen bg-[#0b1220] text-slate-100 lg:flex">
-      <aside className="flex w-full shrink-0 flex-col border-b border-slate-800 bg-[#0a1020] px-4 py-4 lg:min-h-screen lg:w-64 lg:border-b-0 lg:border-r lg:px-4 lg:py-7">
+      <aside className="flex w-full shrink-0 flex-col border-b border-slate-800 bg-[#0a1020] px-4 py-4 lg:sticky lg:top-0 lg:h-screen lg:self-start lg:overflow-y-auto lg:border-b-0 lg:border-r lg:w-64 lg:px-4 lg:py-7">
         <Link href="/" className="mb-5 text-2xl font-extrabold tracking-tight text-emerald-400 lg:mb-12 lg:px-3">PractiHub</Link>
         <nav aria-label="Navegación de empresa" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:flex lg:flex-1 lg:flex-col lg:gap-2">
           <Link href="/empresa/dashboard" aria-current="page" className="flex items-center gap-3 rounded-xl bg-slate-800/80 px-3 py-3 text-sm font-medium text-emerald-300">
@@ -205,11 +205,14 @@ export default function EmpresaDashboardView({
             <NavigationIcon name="users" /> Candidatos
             {!loading && pendingApplicationCount > 0 && <span className="ml-auto rounded-full bg-emerald-400/15 px-2 py-0.5 text-xs text-emerald-300">{pendingApplicationCount}</span>}
           </Link>
+          <Link href="/conexiones" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white lg:mt-auto">
+            <NavigationIcon name="users" /> Conexiones con instructores
+          </Link>
+          <Link href="/mis-practicantes" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white">
+            <NavigationIcon name="briefcase" /> Seguimiento laboral
+          </Link>
           <Link href="/perfil" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white">
             <NavigationIcon name="profile" /> Perfil de empresa
-          </Link>
-          <Link href="/mis-practicantes" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white lg:mt-auto">
-            <NavigationIcon name="briefcase" /> Seguimiento laboral
           </Link>
           <button type="button" disabled={signingOut} onClick={() => void signOut()} className="col-span-2 flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-slate-400 transition hover:bg-slate-800 hover:text-white disabled:opacity-60 sm:col-span-1 lg:col-span-1">
             <NavigationIcon name="logout" /> {signingOut ? 'Cerrando sesión...' : 'Cerrar sesión'}
@@ -321,8 +324,13 @@ export default function EmpresaDashboardView({
                 ) : applications.length === 0 ? (
                   <p className="mt-4 rounded-xl border border-dashed border-slate-700 p-4 text-sm leading-6 text-slate-400">Cuando alguien se postule a una de tus ofertas, verás su perfil aquí.</p>
                 ) : (
-                  <div className="mt-4 space-y-3">
-                    {applications.slice(0, 4).map((application) => {
+                  <div
+                    role="region"
+                    aria-label="Lista de postulaciones recientes"
+                    tabIndex={0}
+                    className="mt-4 max-h-[32rem] space-y-3 overflow-y-auto overscroll-contain pr-2"
+                  >
+                    {applications.map((application) => {
                       const offerTitle = offers.find((offer) => offer.id === application.oferta_id)?.titulo || 'Oferta'
                       return (
                         <article key={application.id} className="rounded-xl border border-slate-700 bg-slate-950/50 p-4">
